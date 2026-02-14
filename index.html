@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bureau Ops</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f6f8;--wh:#fff;--s2:#f0f1f4;--s3:#e5e7ec;--bd:#dfe1e6;--bd2:#c7cad1;--tx:#1a1d23;--tx2:#5e6370;--tx3:#8b90a0;--ac:#2563eb;--ac2:#1d4ed8;--acl:#eff4ff;--gn:#059669;--gnb:#ecfdf5;--gnbd:#a7f3d0;--am:#d97706;--amb:#fffbeb;--ambd:#fde68a;--rd:#dc2626;--rdb:#fef2f2;--rdbd:#fecaca;--r:8px;--r2:10px;--sh:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;-webkit-font-smoothing:antialiased}
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:210px;background:var(--wh);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}.sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid var(--bd)}.sidebar-logo h1{font-size:16px;font-weight:700;letter-spacing:-.02em}.sidebar-logo span{font-size:11px;color:var(--tx3);display:block;margin-top:2px}.sidebar-nav{padding:12px 8px;flex:1}
+.ni{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--tx2);transition:all .15s;border:none;background:none;width:100%;text-align:left;margin-bottom:2px}.ni:hover{background:var(--s2);color:var(--tx)}.ni.act{background:var(--ac);color:#fff}.ni .nic{font-size:16px;width:20px;text-align:center}
+.sf{padding:12px 16px;border-top:1px solid var(--bd);font-size:11px;color:var(--tx3)}
+.mn{flex:1;overflow-y:auto;padding:28px 32px}
+.ph{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}.ph h2{font-size:22px;font-weight:700;letter-spacing:-.02em}.ps{font-size:13px;color:var(--tx3);margin-top:2px}
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}.sc{background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);padding:16px 18px;box-shadow:var(--sh)}.sl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);font-weight:600;margin-bottom:6px}.sv{font-size:20px;font-weight:700;letter-spacing:-.02em}.ss{font-size:11px;color:var(--tx3);margin-top:3px}
+.filter-bar{display:flex;gap:14px;padding:14px 18px;margin-bottom:16px;background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);flex-wrap:wrap;align-items:center;box-shadow:var(--sh)}
+.filter-search{background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:7px 12px;font-size:12px;color:var(--tx);font-family:'DM Sans',sans-serif;outline:none;width:180px;transition:border-color .15s}.filter-search:focus{border-color:var(--ac);box-shadow:0 0 0 2px rgba(37,99,235,.1)}
+.filter-section{display:flex;align-items:center;gap:6px}.filter-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);font-weight:700;white-space:nowrap}
+.btn-group{display:flex;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--bd)}
+.bg-btn{padding:5px 10px;font-size:11px;font-weight:600;border:none;background:var(--wh);color:var(--tx2);cursor:pointer;transition:all .12s;font-family:'DM Sans',sans-serif;border-right:1px solid var(--bd);white-space:nowrap}.bg-btn:last-child{border-right:none}.bg-btn:hover{background:var(--s2);color:var(--tx)}.bg-act{background:var(--ac);color:#fff}.bg-act:hover{background:var(--ac2);color:#fff}
+.tw{background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden;box-shadow:var(--sh)}
+.tsc{overflow-x:auto;max-height:500px;overflow-y:auto}table{width:100%;border-collapse:collapse;font-size:12.5px}th{background:var(--s2);padding:10px 14px;text-align:left;font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--tx3);position:sticky;top:0;white-space:nowrap;border-bottom:1px solid var(--bd)}th.srt{cursor:pointer;user-select:none}th.srt:hover{color:var(--ac)}td{padding:10px 14px;border-bottom:1px solid var(--bd);white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis}tr:hover td{background:#f8f9fb}.cb{font-weight:600}.cm{font-size:11px;color:var(--tx3)}.ec{text-align:center;padding:32px;color:var(--tx3)}
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}.badge-green{background:var(--gnb);color:var(--gn)}.badge-amber{background:var(--amb);color:var(--am)}.badge-red{background:var(--rdb);color:var(--rd)}.badge-grey{background:var(--s2);color:var(--tx3)}.badge-blue{background:var(--acl);color:var(--ac)}
+.region-badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10.5px;font-weight:700;letter-spacing:.04em}.region-AU{background:rgba(217,119,6,.1);color:#b45309}.region-UK{background:rgba(37,99,235,.08);color:#1d4ed8}.region-US{background:rgba(220,38,38,.08);color:#dc2626}.region-CA{background:rgba(5,150,105,.08);color:#047857}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap}.btn-primary{background:var(--ac);color:#fff}.btn-primary:hover{background:var(--ac2)}.btn-ghost{background:transparent;color:var(--tx2);border:1px solid var(--bd)}.btn-ghost:hover{background:var(--s2);color:var(--tx)}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}.green{color:var(--gn)}.amber{color:var(--am)}.red{color:var(--rd)}
+.spinner{width:16px;height:16px;border:2px solid var(--bd);border-top-color:var(--ac);border-radius:50%;animation:sp .6s linear infinite;display:inline-block}@keyframes sp{to{transform:rotate(360deg)}}
+.es{text-align:center;padding:48px 20px;color:var(--tx3);background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2)}
+.dropzone{border:2px dashed var(--bd2);border-radius:var(--r2);padding:36px;text-align:center;cursor:pointer;transition:all .2s;background:var(--wh)}.dropzone:hover,.dz-active{border-color:var(--ac);background:var(--acl)}.dz-compact{padding:20px 22px;margin-bottom:16px;border-width:2px;border-color:var(--ac);border-style:dashed;background:linear-gradient(135deg,var(--acl),#f0f4ff)}.dz-compact:hover{background:linear-gradient(135deg,#dbe8ff,#e0eaff);border-color:var(--ac2)}.dz-ci{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--ac);font-weight:600}
+.sidebar-upload{padding:8px}.sidebar-upload-btn{display:flex;align-items:center;gap:8px;width:100%;padding:12px 14px;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:600;color:var(--ac);background:linear-gradient(135deg,var(--acl),#e8efff);border:2px dashed var(--ac);transition:all .15s;font-family:'DM Sans',sans-serif}.sidebar-upload-btn:hover{background:linear-gradient(135deg,#dbe8ff,#d4dfff);border-color:var(--ac2)}
+.us{margin-bottom:24px;background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);padding:20px;box-shadow:var(--sh)}
+.il-p{display:flex;align-items:center;gap:12px;padding:20px;font-size:13px;color:var(--tx2)}.il-d{display:flex;align-items:center;gap:10px;padding:16px;font-size:13px;color:var(--gn);font-weight:600}.err{background:var(--rdb);border:1px solid var(--rdbd);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--rd)}
+.rc{background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden}
+.rc-h{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid var(--bd);background:#fafbfc}.rc-t{font-size:16px;font-weight:700}.rc-f{font-size:12px;color:var(--tx3);margin-top:2px}
+.rc-c{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700}.rc-c-high{background:var(--gnb);color:var(--gn)}.rc-c-medium{background:var(--amb);color:var(--am)}.rc-c-low{background:var(--rdb);color:var(--rd)}
+.rs-t{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tx3);padding:14px 22px 6px}
+.rr{display:flex;align-items:center;gap:0;padding:0 22px;border-bottom:1px solid #f0f1f4;min-height:52px}.rr-s{width:48px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.rr-l{width:140px;font-size:13px;font-weight:600;color:var(--tx2);flex-shrink:0}.rr-i{flex:1;padding:6px 0}
+.ri{width:100%;background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--tx);font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}.ri:focus{border-color:var(--ac);box-shadow:0 0 0 2px rgba(37,99,235,.1)}.ri-g{display:flex;gap:8px}.ri-n{flex:1;font-family:'JetBrains Mono',monospace}.ri-sm{width:90px;flex-shrink:0}
+.ci{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;font-size:15px;font-weight:800;letter-spacing:0}.ci-lg{width:36px;height:36px;font-size:18px;border-radius:8px}.ci-h{background:#059669;color:#fff;box-shadow:0 1px 3px rgba(5,150,105,.3)}.ci-m{background:#d97706;color:#fff;box-shadow:0 1px 3px rgba(217,119,6,.3)}.ci-l{background:#dc2626;color:#fff;box-shadow:0 1px 3px rgba(220,38,38,.3)}
+.ci-wrap{display:flex;flex-direction:column;align-items:center;gap:2px}.ci-tag{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1}.ci-tag-h{color:#059669}.ci-tag-m{color:#d97706}.ci-tag-l{color:#dc2626}
+.match-confirmed{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:var(--r2);margin:6px 22px 10px 66px}
+.match-confirmed-perfect{background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:2px solid #059669;box-shadow:0 2px 8px rgba(5,150,105,.12)}
+.match-confirmed-warn{background:linear-gradient(135deg,#fffbeb,#fef3c7);border:2px solid #d97706;box-shadow:0 2px 8px rgba(217,119,6,.12)}
+.mc-icon{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;flex-shrink:0}
+.mc-icon-perfect{background:#059669;color:#fff;box-shadow:0 2px 6px rgba(5,150,105,.3)}
+.mc-icon-warn{background:#d97706;color:#fff;box-shadow:0 2px 6px rgba(217,119,6,.3)}
+.mc-body{flex:1;min-width:0}.mc-title{font-size:14px;font-weight:700;margin-bottom:2px}.match-confirmed-perfect .mc-title{color:#047857}.match-confirmed-warn .mc-title{color:#92400e}
+.mc-detail{font-size:12px;line-height:1.4}.match-confirmed-perfect .mc-detail{color:#065f46}.match-confirmed-warn .mc-detail{color:#78350f}
+.mc-hint{font-size:11px;color:#92400e;font-weight:600;font-style:italic;margin-top:4px}
+.mc-change{background:none;border:1px solid var(--bd);border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;color:var(--tx2);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:all .15s;flex-shrink:0}.mc-change:hover{background:var(--s2);color:var(--tx);border-color:var(--tx3)}
+.match-search-prompt{display:flex;align-items:center;gap:12px;padding:12px 18px;margin:6px 22px 6px 66px;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:2px solid var(--ambd);border-radius:var(--r2)}
+.mr{margin:4px 22px 10px 66px}.mr-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--bd);border-radius:var(--r);margin-bottom:4px;cursor:pointer;transition:all .15s;background:var(--wh)}.mr-row:hover{border-color:var(--ac);background:var(--acl)}.mr-best{border-color:var(--gnbd);background:var(--gnb)}.mr-best:hover{border-color:var(--gn)}
+.mr-sw{width:30px;flex-shrink:0;display:flex;justify-content:center}.mr-info{flex:1;min-width:0}.mr-ref{font-weight:700;font-size:13px}.mr-det{font-size:11px;color:var(--tx3);margin-top:1px;display:flex;align-items:center;gap:6px}
+.mr-amt{text-align:right}.mr-tot{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}.mr-out{font-size:10px;color:var(--am);font-weight:600;margin-top:1px}.mr-fp{font-size:10px;color:var(--gn);margin-top:1px}.mr-pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--tx3);font-weight:600;min-width:32px;text-align:right}
+.mr-none{font-size:12px;color:var(--am);padding:10px 14px;background:var(--amb);border:1px solid var(--ambd);border-radius:var(--r)}
+.rc-act{display:flex;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--bd);background:#fafbfc}
+.alloc-row{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--s2);border:1px solid var(--bd);border-radius:6px;margin-bottom:4px}.alloc-ref{font-weight:700;font-size:13px;min-width:120px}.alloc-rm{background:none;border:none;color:var(--rd);cursor:pointer;font-size:14px;padding:4px 8px;border-radius:4px}.alloc-rm:hover{background:var(--rdb)}
+.alloc-summary{display:flex;justify-content:space-between;padding:8px 0;font-size:12px;color:var(--tx2)}
+.drive-link{text-decoration:none;font-size:16px;opacity:.7;transition:opacity .15s}.drive-link:hover{opacity:1}
+.icc{background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);padding:18px;margin-bottom:12px;box-shadow:var(--sh)}.ic-p{display:flex;align-items:center;gap:12px;margin-bottom:12px}.ic-a{color:var(--tx3);font-size:14px}.ic-amt{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;color:var(--ac);margin-left:auto}
+.fw{background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);padding:20px;box-shadow:var(--sh);margin-bottom:24px}
+.wk-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--s2)}.wk-row:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
+.wk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.wk-date{font-weight:600;font-size:13px}.wk-count{font-weight:400;color:var(--tx3);font-size:11px}.wk-nums{display:flex;gap:16px;align-items:center}.wk-cum{color:var(--tx3);font-size:11px;padding:2px 8px;background:var(--s2);border-radius:4px}
+.wk-items{margin-top:8px;border:1px solid var(--bd);border-radius:6px;overflow:hidden}.wk-item{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--s2);font-size:12px}.wk-item:last-child{border-bottom:none}.wk-item:hover{background:#f8f9fb}
+.bt{height:8px;border-radius:4px;background:var(--s3);overflow:hidden;display:flex}.bf{height:100%;border-radius:4px;transition:width .4s ease}.bg{background:var(--gn)}.br{background:var(--rd)}.ba{background:var(--am)}
+.fl{display:flex;gap:16px;margin-top:4px;font-size:11px;color:var(--tx3);justify-content:space-between}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}.dg{background:var(--gn)}.dr{background:var(--rd)}.da{background:var(--am)}
+.st{font-size:14px;font-weight:700;margin:24px 0 14px;display:flex;align-items:center;gap:8px}
+.loading-screen{display:flex;align-items:center;justify-content:center;height:100vh;gap:16px;flex-direction:column}
+.loading-screen .spinner{width:32px;height:32px;border-width:3px}
+@media(max-width:900px){.sidebar{width:56px}.sidebar-logo h1,.sidebar-logo span,.ni span:not(.nic){display:none}.ni{justify-content:center;padding:12px}.mn{padding:16px}.sg{grid-template-columns:1fr 1fr}.rr{flex-direction:column;align-items:flex-start;gap:4px;padding:10px 16px}.rr-s{width:auto}.rr-l{width:auto}.rr-i{width:100%}.filter-bar{flex-direction:column;gap:8px}.filter-search{width:100%}.wk-header{flex-direction:column;align-items:flex-start;gap:4px}.sidebar-upload-btn span:last-child{display:none}.sidebar-upload-btn{justify-content:center;padding:10px}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-type="module">
+const { useState, useRef, useMemo, useEffect, useCallback } = React;
+
+const API = "https://bureau-ops-worker.nik-d88.workers.dev";
+const ENTITIES = ["AU", "UK", "US", "CA"];
+const SUPPLIERS = ["Soundbox", "Hecor", "Dawon", "Sunon"];
+const CURRENCIES = ["USD", "RMB", "AUD", "CAD", "GBP", "EUR"];
+const PAYMENT_TYPES = ["Deposit", "Release", "Full Amount"];
+const DOC_TYPES = [
+  { id: "purchase_order", label: "Purchase Order", icon: "📄" },
+  { id: "commercial_invoice", label: "Commercial Invoice", icon: "🧾" },
+  { id: "remittance", label: "Bank Remittance", icon: "🏦" },
+  { id: "freight_invoice", label: "Freight Invoice", icon: "🚢" },
+];
+const BANKS = [
+  { id: "au-nab", label: "AU – NAB", entity: "AU", hint: "AU-NAB" },
+  { id: "uk-hsbc", label: "UK – HSBC", entity: "UK", hint: "UK-HSBC" },
+  { id: "us-chase", label: "US – Chase", entity: "US", hint: "US-Chase" },
+  { id: "ca-rbc", label: "CA – RBC", entity: "CA", hint: "CA-RBC" },
+];
+const FX = { RMB: 6.91, USD: 1, AUD: 0.71, CAD: 0.73, GBP: 1.37, EUR: 1.19 };
+const GDRIVE_BASE = "https://drive.google.com/drive/folders/";
+const TABS = [
+  { id: "orders", label: "Purchase Orders", icon: "📦" },
+  { id: "payments", label: "Payments", icon: "💳" },
+  { id: "clearing", label: "Intercompany", icon: "🔄" },
+  { id: "forecast", label: "Cash Forecast", icon: "📊" },
+];
+const usd = v => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const toUSD = (a, c) => c === "USD" ? a : a * (FX[c] || 1);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const pct = v => (v * 100).toFixed(1) + "%";
+const getWeekStart = d => { const dt = new Date(d); const day = dt.getDay(); const diff = dt.getDate() - day + (day === 0 ? -6 : 1); dt.setDate(diff); dt.setHours(0,0,0,0); return dt; };
+const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDate(e.getDate() + 6); return `${s.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`; };
+const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
+
+const AUTO_DETECT_PROMPT = `You are analysing a document for Bureau Booths, a company that ships booth/furniture containers from Chinese suppliers (Soundbox, Hecor, Dawon, Sunon) to AU, UK, US, and CA.
+Determine the document type from: purchase_order, commercial_invoice, remittance, freight_invoice. Then extract data. Return ONLY JSON:
+If purchase_order: {"doc_type":"purchase_order","supplier":"","po_reference":"","invoice_number":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
+If remittance: {"doc_type":"remittance","bank_account_hint":"AU-NAB|UK-HSBC|US-Chase|CA-RBC","source_entity":"AU|UK|US|CA","payment_date":"YYYY-MM-DD","amount":0,"currency":"USD","po_references":[""],"payment_type":"Deposit|Release|Full Amount","reference":"","notes":"","confidence":"high|medium|low","confidence_details":{"amount":"high|medium|low","payment_date":"high|medium|low","source_entity":"high|medium|low","po_references":"high|medium|low"}}
+If commercial_invoice: {"doc_type":"commercial_invoice","supplier":"","invoice_number":"","invoice_date":"","po_reference":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
+If freight_invoice: {"doc_type":"freight_invoice","invoice_number":"","tracking_number":"","total_amount":0,"currency":"AUD","destination_region":"AU|UK|US|CA","po_reference":"","origin":"","destination":"","notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
+Hints: GB prefix=UK, US=US, CA=CA, AU/E=AU. Invoice prefixes: GB=UK Soundbox, HA=Hecor, BUR=Dawon.`;
+
+// API helpers
+async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
+async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error("API "+r.status+": "+(await r.text())); return r.json(); }
+async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
+async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error("Upload failed"); return r.json(); }
+
+// Fuzzy match
+function fuzzyMatchPO(input, orders, payments) {
+  if (!input||!input.trim()) return [];
+  const clean=s=>(s||"").replace(/[\s\-_\.#,/\\()]+/g,"").toLowerCase(), extractNums=s=>(s||"").match(/\d+/g)||[];
+  const q=clean(input),qNums=extractNums(input), cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-3);
+  const paidMap={}; (payments||[]).forEach(p=>Object.entries(p.allocations||{}).forEach(([oid,amt])=>{paidMap[oid]=(paidMap[oid]||0)+amt;}));
+  return orders.map(o=>{let score=0,reason="";const rc=clean(o.ref),ic=clean(o.inv);if(rc===q||ic===q){score=100;reason="Exact";}else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}const tot=toUSD(o.totalValue,o.currency),pd=paidMap[o.id]||0,out=tot-pd,bal=out>0.01;if(score>0&&bal)score+=5;return{...o,score,reason,outstanding:out,paid:pd,totalUSD:tot,hasBalance:bal};}).filter(o=>o.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
+}
+
+// Doc parser
+async function parseDoc(file) {
+  const b64=await new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=()=>j(new Error("fail"));x.readAsDataURL(file);});
+  const isPDF=file.type==="application/pdf";
+  const block=isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/png",data:b64}};
+  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,system:AUTO_DETECT_PROMPT,messages:[{role:"user",content:[block,{type:"text",text:"Identify document type and extract data. Return ONLY JSON."}]}]})});
+  const data=await res.json(); return JSON.parse((data.content||[]).map(c=>c.text||"").join("").replace(/```json|```/g,"").trim());
+}
+
+// Small UI components
+function StatusBadge({status,dueDate}){let l=status,c="badge ";if(status==="due"&&dueDate&&new Date(dueDate)<new Date()){l="overdue";c+="badge-red";}else if(status==="paid")c+="badge-green";else if(status==="due")c+="badge-amber";else c+="badge-grey";return <span className={c}>{l}</span>;}
+function RegionBadge({region}){return <span className={`region-badge region-${region}`}>{region}</span>;}
+function ConfIcon({level}){if(level==="high")return <div className="ci-wrap"><span className="ci ci-h">✓</span><span className="ci-tag ci-tag-h">OK</span></div>;if(level==="medium")return <div className="ci-wrap"><span className="ci ci-m">⚠</span><span className="ci-tag ci-tag-m">Check</span></div>;return <div className="ci-wrap"><span className="ci ci-l">✕</span><span className="ci-tag ci-tag-l">Fix</span></div>;}
+function BtnGroup({options,value,onChange,allLabel}){return <div className="btn-group">{allLabel&&<button className={`bg-btn ${value==="all"?"bg-act":""}`} onClick={()=>onChange("all")}>{allLabel}</button>}{options.map(o=><button key={o} className={`bg-btn ${value===o?"bg-act":""}`} onClick={()=>onChange(value===o?"all":o)}>{o}</button>)}</div>;}
+function DropZone({onFiles,compact,label}){const[drag,setDrag]=useState(false);const fRef=useRef();return <div className={`dropzone ${compact?"dz-compact":""} ${drag?"dz-active":""}`} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);onFiles(Array.from(e.dataTransfer?.files||[]));}} onClick={()=>fRef.current?.click()}><input ref={fRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple style={{display:"none"}} onChange={e=>{onFiles(Array.from(e.target.files||[]));e.target.value="";}}/>{compact?<div className="dz-ci"><span>📎</span><span>{label||"Drop file or click to upload"}</span></div>:<><div style={{fontSize:36,marginBottom:10}}>📎</div><div style={{fontSize:15,fontWeight:600,marginBottom:4}}>{label||"Drop documents here"}</div><div style={{fontSize:12,color:"var(--tx3)"}}>PDF, PNG, or JPG</div></>}</div>;}
+
+// ReviewScreen
+function ReviewScreen({parsed,ed,setEd,docType,onConfirm,onCancel,fileName,orders,payments}){
+  const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const cd=parsed?.confidence_details||{};const oc=parsed?.confidence||"medium";
+  const[multiPO,setMultiPO]=useState(false);const[allocs,setAllocs]=useState([]);
+  const addAlloc=o=>{if(allocs.find(a=>a.orderId===o.id))return;setAllocs(p=>[...p,{orderId:o.id,ref:o.ref,amount:0}]);};
+  const rmAlloc=oid=>setAllocs(p=>p.filter(a=>a.orderId!==oid));
+  const setAllocAmt=(oid,amt)=>setAllocs(p=>p.map(a=>a.orderId===oid?{...a,amount:+(amt)||0}:a));
+  const allocTotal=allocs.reduce((s,a)=>s+a.amount,0);const allocRemain=(+(ed?.amount)||0)-allocTotal;
+  const[multiSearch,setMultiSearch]=useState("");const[showSearch,setShowSearch]=useState(false);
+  const multiMatches=useMemo(()=>multiSearch.trim()?fuzzyMatchPO(multiSearch,orders,payments):[],[multiSearch,orders,payments]);
+  const Row=({label,field,conf,children})=>{const c=conf||cd[field]||oc;return <div className="rr"><div className="rr-s"><ConfIcon level={c}/></div><div className="rr-l">{label}</div><div className="rr-i">{children}</div></div>;};
+  const refInput=ed?.po_references?.[0]||ed?.reference||ed?.po_reference||"";
+  const matches=useMemo(()=>(docType==="remittance"||docType==="commercial_invoice"||docType==="freight_invoice")?fuzzyMatchPO(refInput,orders,payments):[],[refInput,orders,payments,docType]);
+  const handleConfirm=()=>{if(multiPO&&allocs.length>0){setEd(p=>({...p,_multiAllocs:allocs}));setTimeout(()=>onConfirm(),0);}else onConfirm();};
+
+  return <div className="rc">
+    <div className="rc-h"><div><div className="rc-t">Review Extracted Data</div><div className="rc-f">{fileName}</div></div><div className={`rc-c rc-c-${oc}`}>{oc==="high"?"✓ High Confidence":oc==="medium"?"? Check Fields":"⚠ Needs Review"}</div></div>
+    <div className="rs-t">Document Type</div>
+    <div className="rr"><div className="rr-s"><ConfIcon level="high"/></div><div className="rr-l">Type</div><div className="rr-i"><span className="badge badge-blue">{DOC_TYPES.find(d=>d.id===docType)?.icon} {DOC_TYPES.find(d=>d.id===docType)?.label}</span></div></div>
+
+    {docType==="purchase_order"&&<>
+      <div className="rs-t">Order Details</div>
+      <Row label="Supplier" field="supplier"><select value={ed.supplier||""} onChange={e=>sf("supplier",e.target.value)} className="ri"><option value="">Select...</option>{SUPPLIERS.map(s=><option key={s}>{s}</option>)}</select></Row>
+      <Row label="PO Reference" field="po_reference"><input className="ri" value={ed.po_reference||""} onChange={e=>sf("po_reference",e.target.value)} placeholder="PO-215"/></Row>
+      <Row label="Invoice #" field="invoice_number"><input className="ri" value={ed.invoice_number||""} onChange={e=>sf("invoice_number",e.target.value)}/></Row>
+      <Row label="Destination" field="destination_region"><select value={ed.destination_region||""} onChange={e=>sf("destination_region",e.target.value)} className="ri"><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></Row>
+      <div className="rs-t">Financials</div>
+      <Row label="Total Value" field="total_value"><div className="ri-g"><input className="ri ri-n" type="number" step="0.01" value={ed.total_value||0} onChange={e=>sf("total_value",e.target.value)}/><select value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)} className="ri ri-sm">{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div></Row>
+      <Row label="Deposit (30%)" field="deposit_amount"><input className="ri ri-n" type="number" step="0.01" value={ed.deposit_amount||0} onChange={e=>sf("deposit_amount",e.target.value)}/></Row>
+      <Row label="Release Balance" conf="high"><input className="ri ri-n" type="number" step="0.01" value={ed.release_amount||(+(ed.total_value)-+(ed.deposit_amount))||0} onChange={e=>sf("release_amount",e.target.value)}/></Row>
+      <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)} placeholder="Optional"/></Row>
+    </>}
+
+    {docType==="remittance"&&<>
+      <div className="rs-t">Payment Source</div>
+      <Row label="Bank Account" field="bank_account_hint"><select value={ed.bank_account_hint||""} onChange={e=>sf("bank_account_hint",e.target.value)} className="ri"><option value="">Auto-detect...</option>{BANKS.map(b=><option key={b.id} value={b.hint}>{b.label}</option>)}</select></Row>
+      <Row label="Paying Entity" field="source_entity"><select value={ed.source_entity||""} onChange={e=>sf("source_entity",e.target.value)} className="ri"><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></Row>
+      <div className="rs-t">Payment Details</div>
+      <Row label="Amount" field="amount"><div className="ri-g"><input className="ri ri-n" type="number" step="0.01" value={ed.amount||0} onChange={e=>sf("amount",e.target.value)}/><select value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)} className="ri ri-sm">{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div></Row>
+      <Row label="Payment Date" field="payment_date"><input className="ri" type="date" value={ed.payment_date||""} onChange={e=>sf("payment_date",e.target.value)}/></Row>
+      <Row label="Type" conf="high"><select value={ed.payment_type||"Deposit"} onChange={e=>sf("payment_type",e.target.value)} className="ri">{PAYMENT_TYPES.map(t=><option key={t}>{t}</option>)}</select></Row>
+      <div className="rs-t">Match to Purchase Order</div>
+      <Row label="PO Reference" field="po_references"><input className="ri" value={refInput} onChange={e=>sf("po_references",[e.target.value])} placeholder="Type PO# to search..."/></Row>
+      {refInput.trim()&&matches.length>0&&<div className="mr">{matches.map(m=><div key={m.id} className={`mr-row ${m.score>=85?"mr-best":""}`} onClick={()=>sf("po_references",[m.ref])}><div className="mr-sw">{m.score>=85?<span className="ci ci-h">✓</span>:<span className="ci ci-m">⚠</span>}</div><div className="mr-info"><div className="mr-ref">{m.ref}</div><div className="mr-det">{m.inv} · {m.supplier} · <RegionBadge region={m.region}/></div></div><div className="mr-amt"><div className="mr-tot">{usd(m.totalUSD)}</div>{m.hasBalance?<div className="mr-out">Bal: {usd(m.outstanding)}</div>:<div className="mr-fp">Fully paid</div>}</div><div className="mr-pct">{m.score}%</div></div>)}</div>}
+      <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)} placeholder="Optional"/></Row>
+    </>}
+
+    {(docType==="commercial_invoice"||docType==="freight_invoice")&&<>
+      <div className="rs-t">Invoice Details</div>
+      <Row label="Invoice #" field="invoice_number"><input className="ri" value={ed.invoice_number||""} onChange={e=>sf("invoice_number",e.target.value)}/></Row>
+      <Row label="PO Reference" field="po_reference"><input className="ri" value={ed.po_reference||""} onChange={e=>sf("po_reference",e.target.value)}/></Row>
+      <Row label="Amount" field="total_amount"><div className="ri-g"><input className="ri ri-n" type="number" step="0.01" value={ed.total_amount||0} onChange={e=>sf("total_amount",e.target.value)}/><select value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)} className="ri ri-sm">{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div></Row>
+      <Row label="Region" field="destination_region"><select value={ed.destination_region||""} onChange={e=>sf("destination_region",e.target.value)} className="ri"><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></Row>
+      <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)}/></Row>
+    </>}
+    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className="btn btn-primary" onClick={handleConfirm}>✓ Confirm & Save</button></div>
+  </div>;
+}
+
+// InlineUploader
+function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,onRefresh}){
+  const[st,setSt]=useState("idle");const[file,setFile]=useState(null);const[parsed,setParsed]=useState(null);const[ed,setEd]=useState(null);const[docType,setDocType]=useState(defaultDocType);const[error,setError]=useState(null);
+  const empty=dt=>dt==="purchase_order"?{doc_type:"purchase_order",supplier:"",po_reference:"",invoice_number:"",destination_region:"",currency:"USD",total_value:0,deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"commercial_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
+  const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);setEd(r);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
+  const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
+    if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",totalValue:+(d.total_value)||0,depositAmt:+(d.deposit_amount)||0,depositStatus:"due",releaseAmt:+(d.release_amount)||(+(d.total_value)-+(d.deposit_amount))||0,releaseStatus:"unpaid",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
+    else if(dt==="remittance"){const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};const ref=(d.po_references?.[0]||d.reference||"").trim();const ms=fuzzyMatchPO(ref,orders,payments),m=ms.length>0&&ms[0].score>=75?ms[0]:null;await apiPost("/api/payments",{orderIds:m?[m.id]:[],allocations:m?{[m.id]:+(d.amount)||0}:{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}
+    else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
+    if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
+  }catch(e){setError("Save failed: "+e.message);setSt("review");}};
+  const reset=()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);};
+  if(st==="idle")return <DropZone compact onFiles={handleFiles} label="Drop a document to upload and parse"/>;
+  if(st==="parsing")return <div className="il-p"><div className="spinner"/><span>Parsing {file?.name}...</span></div>;
+  if(st==="saving")return <div className="il-p"><div className="spinner"/><span>Saving...</span></div>;
+  if(st==="done")return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>Saved</span></div>;
+  return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
+}
+
+// Tabs
+function OrdersTab({orders,payments,onRefresh}){
+  const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fSt,setFSt]=useState("all");
+  const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);
+  const fl=orders.filter(o=>{if(fR!=="all"&&o.region!==fR)return false;if(fS!=="all"&&o.supplier!==fS)return false;if(fSt==="paid"&&(o.depositStatus!=="paid"||o.releaseStatus!=="paid"))return false;if(fSt==="out"&&o.depositStatus==="paid"&&o.releaseStatus==="paid")return false;if(fSt==="overdue"){const a=o.depositStatus==="due"&&o.depositDue&&new Date(o.depositDue)<new Date();const b=o.releaseStatus==="due"&&o.releaseDue&&new Date(o.releaseDue)<new Date();if(!a&&!b)return false;}if(search)return(o.ref+o.inv+o.notes+o.supplier).toLowerCase().includes(search.toLowerCase());return true;});
+  const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="total")return(toUSD(a.totalValue,a.currency)-toUSD(b.totalValue,b.currency))*d;if(sort.key==="due")return((a.releaseDue||a.depositDue||"")>(b.releaseDue||b.depositDue||"")?1:-1)*d;return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
+  const tv=fl.reduce((s,o)=>s+toUSD(o.totalValue,o.currency),0);
+  const tp=fl.reduce((s,o)=>{let p=0;if(o.depositStatus==="paid")p+=toUSD(o.depositAmt,o.currency);if(o.releaseStatus==="paid")p+=toUSD(o.releaseAmt,o.currency);return s+p;},0);
+  const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
+  const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
+  return <>
+    <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{fl.length} of {orders.length} orders</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
+    {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
+    <div className="sg"><div className="sc"><div className="sl">Orders</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
+    <div className="filter-bar">
+      <input placeholder="Search PO, invoice..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
+      <div className="filter-section"><span className="filter-label">Region</span><BtnGroup options={ENTITIES} value={fR} onChange={setFR} allLabel="All"/></div>
+      <div className="filter-section"><span className="filter-label">Supplier</span><BtnGroup options={SUPPLIERS} value={fS} onChange={setFS} allLabel="All"/></div>
+      <div className="filter-section"><span className="filter-label">Status</span><BtnGroup options={["out","paid","overdue"]} value={fSt} onChange={setFSt} allLabel="All"/></div>
+    </div>
+    <div className="tw"><div className="tsc"><table><thead><tr><th>Region</th><th className="srt" onClick={()=>ts("ref")}>PO Ref{si("ref")}</th><th>Invoice</th><th>Supplier</th><th className="srt" onClick={()=>ts("total")}>Total{si("total")}</th><th>Deposit</th><th>Dep.</th><th>Release</th><th>Rel.</th><th className="srt" onClick={()=>ts("due")}>Due{si("due")}</th><th>Drive</th></tr></thead>
+    <tbody>{sorted.map(o=><tr key={o.id}><td><RegionBadge region={o.region}/></td><td className="cb">{o.ref}</td><td className="mono">{o.inv}</td><td>{o.supplier}</td><td className="mono">{usd(toUSD(o.totalValue,o.currency))}</td><td className="mono">{usd(toUSD(o.depositAmt,o.currency))}</td><td><StatusBadge status={o.depositStatus} dueDate={o.depositDue}/></td><td className="mono">{usd(toUSD(o.releaseAmt,o.currency))}</td><td><StatusBadge status={o.releaseStatus} dueDate={o.releaseDue}/></td><td>{fmtDate(o.releaseDue||o.depositDue)}</td>
+      <td>{o.driveFolderId?<a href={GDRIVE_BASE+o.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td></tr>)}
+    {!sorted.length&&<tr><td colSpan={11} className="ec">No orders match</td></tr>}</tbody></table></div></div>
+  </>;
+}
+
+function PaymentsTab({orders,payments,onRefresh}){
+  const[showUp,setShowUp]=useState(false);const[fR,setFR]=useState("all");const[search,setSearch]=useState("");
+  const go=id=>orders.find(o=>o.id===id);
+  const fl=payments.filter(p=>{if(fR!=="all"&&p.sourceEntity!==fR)return false;if(search){const refs=(p.orderIds||[]).map(id=>go(id)?.ref||"").join(" ");return(refs+" "+(p.docName||"")+" "+(p.notes||"")).toLowerCase().includes(search.toLowerCase());}return true;});
+  const tot=fl.reduce((s,p)=>s+toUSD(p.amount,p.currency),0);
+  const ic=fl.filter(p=>(p.orderIds||[]).some(oid=>{const o=go(oid);return o&&p.sourceEntity!==o.region;}));
+  return <>
+    <div className="ph"><div><h2>Payment Ledger</h2><p className="ps">{fl.length} of {payments.length} payments</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload Remittance"}</button></div>
+    {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="remittance" onRefresh={onRefresh}/></div>}
+    <div className="sg"><div className="sc"><div className="sl">Payments</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Paid</div><div className="sv mono green">{usd(tot)}</div></div><div className="sc"><div className="sl">Intercompany</div><div className="sv amber">{ic.length}</div></div></div>
+    <div className="filter-bar">
+      <input placeholder="Search PO, doc..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
+      <div className="filter-section"><span className="filter-label">Source</span><BtnGroup options={ENTITIES} value={fR} onChange={setFR} allLabel="All"/></div>
+    </div>
+    <div className="tw"><div className="tsc"><table><thead><tr><th>Date</th><th>PO(s)</th><th>Source</th><th>Bank</th><th>Amount</th><th>Type</th><th>IC?</th></tr></thead>
+    <tbody>{[...fl].sort((a,b)=>new Date(b.date)-new Date(a.date)).map(p=>{const oids=p.orderIds||[];const firstO=go(oids[0]);const isIC=oids.some(oid=>{const o=go(oid);return o&&p.sourceEntity!==o.region;});return <tr key={p.id}><td>{fmtDate(p.date)}</td><td className="cb">{oids.length>1?oids.length+" POs":(firstO?.ref||"—")}</td><td><RegionBadge region={p.sourceEntity}/></td><td>{BANKS.find(b=>b.id===p.bankAccount)?.label||p.bankAccount}</td><td className="mono">{usd(p.amount)}</td><td><span className="badge badge-green">{p.type}</span></td><td>{isIC?<span className="badge badge-amber">⚠ IC</span>:"—"}</td></tr>;})}
+    {!fl.length&&<tr><td colSpan={7} className="ec">No payments match</td></tr>}</tbody></table></div></div>
+  </>;
+}
+
+function IntercompanyTab({orders,payments}){
+  const icMap={};payments.forEach(p=>{(p.orderIds||[]).forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o||p.sourceEntity===o.region)return;const k=[p.sourceEntity,o.region].sort().join("-");if(!icMap[k])icMap[k]={e1:p.sourceEntity<o.region?p.sourceEntity:o.region,e2:p.sourceEntity<o.region?o.region:p.sourceEntity,net:0,txns:[]};const amt=(p.allocations||{})[oid]||p.amount;icMap[k].net+=amt*(p.sourceEntity<o.region?1:-1);icMap[k].txns.push({date:p.date,poRef:o.ref,sourceEntity:p.sourceEntity,dest:o.region,amount:amt});});});
+  const pairs=Object.values(icMap);const totalIC=pairs.reduce((s,p)=>s+Math.abs(p.net),0);
+  return <>
+    <div className="ph"><div><h2>Intercompany Clearing</h2><p className="ps">Auto-detected when payment source ≠ PO destination</p></div></div>
+    <div className="sg"><div className="sc"><div className="sl">IC Pairs</div><div className="sv">{pairs.length}</div></div><div className="sc"><div className="sl">Total Exposure</div><div className="sv mono amber">{usd(totalIC)}</div></div></div>
+    {!pairs.length?<div className="es"><div style={{fontSize:36,marginBottom:12}}>🔄</div><p>No intercompany clearing needed</p></div>
+    :pairs.map((pr,i)=><div key={i} className="icc"><div className="ic-p"><RegionBadge region={pr.e1}/><span className="ic-a">{pr.net>=0?"→ owes →":"← owed ←"}</span><RegionBadge region={pr.e2}/><span className="ic-amt mono">{usd(Math.abs(pr.net))}</span></div>
+    <table><thead><tr><th>Date</th><th>PO</th><th>From</th><th>To</th><th>Amount</th></tr></thead><tbody>{pr.txns.map((t,j)=><tr key={j}><td>{fmtDate(t.date)}</td><td className="cb">{t.poRef}</td><td><RegionBadge region={t.sourceEntity}/></td><td><RegionBadge region={t.dest}/></td><td className="mono">{usd(t.amount)}</td></tr>)}</tbody></table></div>)}
+  </>;
+}
+
+function ForecastTab({orders}){
+  const weeks={};orders.forEach(o=>{const add=(d,a,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else if(new Date(d)<new Date())weeks[wk].over+=u;else weeks[wk].due+=u;weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,status:st,label,date:d});};add(o.depositDue,o.depositAmt,o.depositStatus,"Deposit");add(o.releaseDue,o.releaseAmt,o.releaseStatus,"Release");});
+  const sortedWeeks=Object.entries(weeks).sort(([a],[b])=>a.localeCompare(b));let cumul=0;
+  const withCumul=sortedWeeks.map(([wk,d])=>{cumul+=d.total;return[wk,d,cumul];});
+  const[expanded,setExpanded]=useState({});const toggle=wk=>setExpanded(p=>({...p,[wk]:!p[wk]}));
+  return <>
+    <div className="ph"><div><h2>Cash Forecast</h2><p className="ps">Weekly payment obligations</p></div></div>
+    <div className="fw">{withCumul.map(([wk,d,cum])=><div key={wk} className="wk-row">
+      <div className="wk-header" onClick={()=>toggle(wk)} style={{cursor:"pointer"}}><div className="wk-date">{fmtWeek(wk)} <span className="wk-count">({d.items.length})</span></div><div className="wk-nums"><span className="mono">{usd(d.total)}</span><span className="wk-cum mono">Σ {usd(cum)}</span></div></div>
+      <div className="bt"><div className="bf bg" style={{width:d.total>0?pct(d.paid/d.total):"0%"}}/><div className="bf br" style={{width:d.total>0?pct(d.over/d.total):"0%"}}/><div className="bf ba" style={{width:d.total>0?pct(d.due/d.total):"0%"}}/></div>
+      <div className="fl"><span><span className="dot dg"/>Paid: {usd(d.paid)}</span>{d.over>0&&<span><span className="dot dr"/>Overdue: {usd(d.over)}</span>}<span><span className="dot da"/>Due: {usd(d.due)}</span></div>
+      {expanded[wk]&&<div className="wk-items">{d.items.sort((a,b)=>a.date.localeCompare(b.date)).map((it,i)=><div key={i} className="wk-item"><RegionBadge region={it.region}/><span className="cb" style={{flex:1}}>{it.ref}</span><span className="badge badge-grey" style={{fontSize:10}}>{it.label}</span><StatusBadge status={it.status} dueDate={it.date}/><span className="mono" style={{minWidth:90,textAlign:"right"}}>{usd(it.amount)}</span></div>)}</div>}
+    </div>)}</div>
+  </>;
+}
+
+// App
+function App(){
+  const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);
+  const loadData=useCallback(async()=>{try{setLoading(true);setError(null);const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){setError(e.message);}finally{setLoading(false);};},[]);
+  useEffect(()=>{loadData();},[loadData]);
+  const refresh=useCallback(async()=>{try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}},[]);
+  if(loading)return <div className="loading-screen"><div className="spinner"/><span style={{fontSize:15,color:"var(--tx2)"}}>Loading Bureau Ops...</span></div>;
+  if(error)return <div className="loading-screen"><div style={{fontSize:48}}>⚠️</div><div style={{fontSize:15,color:"var(--rd)",maxWidth:400,textAlign:"center"}}>{error}</div><button className="btn btn-primary" onClick={loadData}>Retry</button></div>;
+  return <div className="app">
+    <div className="sidebar"><div className="sidebar-logo"><h1>Bureau Ops</h1><span>Logistics & Payments</span></div>
+    <nav className="sidebar-nav">{TABS.map(t=><button key={t.id} className={`ni ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}><span className="nic">{t.icon}</span><span>{t.label}</span></button>)}</nav>
+    <div className="sidebar-upload"><button className="sidebar-upload-btn" onClick={()=>setSideUpload(!sideUpload)}><span style={{fontSize:18}}>⬆</span><span>Upload Doc</span></button></div>
+    <div className="sf">{orders.length} POs · {payments.length} payments{lastRefresh&&<div style={{marginTop:4,cursor:"pointer"}} onClick={refresh} title="Click to refresh">🔄 {lastRefresh.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>}</div></div>
+    <main className="mn">
+      {sideUpload&&<div className="us" style={{marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontWeight:700,fontSize:14}}>Quick Upload</span><button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:11}} onClick={()=>setSideUpload(false)}>✕ Close</button></div><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={refresh}/></div>}
+      {tab==="orders"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh}/>}
+      {tab==="payments"&&<PaymentsTab orders={orders} payments={payments} onRefresh={refresh}/>}
+      {tab==="clearing"&&<IntercompanyTab orders={orders} payments={payments}/>}
+      {tab==="forecast"&&<ForecastTab orders={orders}/>}
+    </main></div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

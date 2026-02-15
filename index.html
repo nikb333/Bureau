@@ -105,6 +105,7 @@ const TABS = [
   { id: "payments", label: "Payments", icon: "💳" },
   { id: "clearing", label: "Intercompany", icon: "🔄" },
   { id: "forecast", label: "Cash Forecast", icon: "📊" },
+  { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 const usd = v => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -140,10 +141,18 @@ function fuzzyMatchPO(input, orders, payments) {
 
 // Doc parser
 async function parseDoc(file) {
+  const apiKey = localStorage.getItem('anthropic_api_key');
+  if (!apiKey) {
+    throw new Error('API key not configured. Please add your Anthropic API key in Settings.');
+  }
   const b64=await new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=()=>j(new Error("fail"));x.readAsDataURL(file);});
   const isPDF=file.type==="application/pdf";
   const block=isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/png",data:b64}};
-  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,system:AUTO_DETECT_PROMPT,messages:[{role:"user",content:[block,{type:"text",text:"Identify document type and extract data. Return ONLY JSON."}]}]})});
+  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,system:AUTO_DETECT_PROMPT,messages:[{role:"user",content:[block,{type:"text",text:"Identify document type and extract data. Return ONLY JSON."}]}]})});
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`API error: ${res.status} - ${err}`);
+  }
   const data=await res.json(); return JSON.parse((data.content||[]).map(c=>c.text||"").join("").replace(/```json|```/g,"").trim());
 }
 
@@ -311,6 +320,49 @@ function ForecastTab({orders}){
   </>;
 }
 
+function SettingsTab() {
+  const [apiKey, setApiKey] = useState(localStorage.getItem('anthropic_api_key') || '');
+  const [saved, setSaved] = useState(false);
+
+  const saveApiKey = () => {
+    localStorage.setItem('anthropic_api_key', apiKey);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return <>
+    <div className="ph">
+      <div><h2>Settings</h2><p className="ps">Configure API keys and preferences</p></div>
+    </div>
+    <div style={{maxWidth: 600, padding: '0 24px'}}>
+      <div style={{marginBottom: 24}}>
+        <h3 style={{fontSize: 16, marginBottom: 8}}>Anthropic API Key</h3>
+        <p style={{fontSize: 13, color: '#666', marginBottom: 12}}>
+          Required for PDF document parsing. Get your API key from <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>
+        </p>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="sk-ant-..."
+          style={{
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #ddd',
+            borderRadius: 6,
+            fontSize: 13,
+            fontFamily: 'monospace',
+            marginBottom: 12
+          }}
+        />
+        <button onClick={saveApiKey} className="btn btn-primary">
+          {saved ? '✓ Saved' : 'Save API Key'}
+        </button>
+      </div>
+    </div>
+  </>;
+}
+
 // App
 function App(){
   const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);
@@ -330,6 +382,7 @@ function App(){
       {tab==="payments"&&<PaymentsTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="clearing"&&<IntercompanyTab orders={orders} payments={payments}/>}
       {tab==="forecast"&&<ForecastTab orders={orders}/>}
+      {tab==="settings"&&<SettingsTab/>}
     </main></div>;
 }
 

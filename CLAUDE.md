@@ -9,7 +9,7 @@ An operations dashboard for Bureau Booths managing purchase orders, payments, sp
 ```
 index.html (Cloudflare Pages, auto-deploys from GitHub)
     ↓ API calls
-Cloudflare Worker (bureau-ops-worker.nik-d88.workers.dev)
+Cloudflare Worker (bureau.nik-d88.workers.dev)
     ↓ reads/writes
 Google Sheets ("Bureau Ops Data" — the database, flat & accessible)
     +
@@ -23,7 +23,7 @@ Google Drive ("Supplier purchase orders" — document storage)
 ### Key URLs
 
 - **Dashboard**: deployed on Cloudflare Pages (connected to GitHub repo `nikb333/Bureau`)
-- **Worker API**: `https://bureau-ops-worker.nik-d88.workers.dev`
+- **Worker API**: `https://bureau.nik-d88.workers.dev`
 - **GitHub repo**: `https://github.com/nikb333/Bureau` (private)
 
 ### Google Sheet Structure (Worker-owned, 2 tabs)
@@ -55,22 +55,24 @@ Supplier purchase orders/          ← top-level, shared with service account
 ```
 Bureau/                  ← GitHub repo root
   ├── index.html         ← THE dashboard (single file, React + Babel via CDN)
-  ├── worker.js          ← Worker source (deployed separately via Cloudflare dashboard)
+  ├── worker.js          ← Worker source (auto-deploys from GitHub)
+  ├── wrangler.toml      ← Worker config
+  ├── .github/workflows/ ← GitHub Actions (Worker deploy)
   └── CLAUDE.md          ← This file
 ```
 
 The dashboard is a **single self-contained HTML file**. It loads React 18, ReactDOM, and Babel from CDNs. All components, styles, and logic are in this one file. No build step, no npm, no node_modules.
 
-The Worker is deployed separately via the Cloudflare dashboard (not from this repo) because the dev machine is Windows ARM64 which can't run Wrangler. To update the Worker: go to Cloudflare dashboard → Workers & Pages → bureau-ops-worker → Edit Code → paste worker.js → Deploy.
+The Worker ("bureau") is connected to GitHub and auto-deploys when code is pushed to main.
 
 ## Tech Stack
 
 - React 18 (via CDN, using Babel in-browser transform)
 - Light theme UI — DM Sans for text, JetBrains Mono for numbers/amounts
-- Cloudflare Worker for API layer (deployed via dashboard, not CLI)
+- Cloudflare Worker for API layer (auto-deploys from GitHub)
 - Google Sheets API for data persistence (service account auth with JWT)
 - Google Drive API for document storage (per-PO folders inside supplier subfolders)
-- Claude Haiku 4.5 API for document parsing (called directly from the browser)
+- Claude Haiku 4.5 API for document parsing (called from Worker via /api/parse)
 
 ## Core Business Logic
 
@@ -200,10 +202,8 @@ Auto-detected when the payment source entity ≠ the PO destination entity (e.g.
 ### Worker (worker.js)
 
 1. Edit `worker.js`
-2. Go to Cloudflare dashboard → Workers & Pages → bureau-ops-worker → Edit Code
-3. Paste the updated code → Deploy
-
-(Worker is NOT auto-deployed from GitHub — manual paste due to Windows ARM64 limitation)
+2. `git add . && git commit -m "description" && git push`
+3. Worker auto-deploys from GitHub (connected to "bureau" Worker)
 
 ### Using Claude Code
 

@@ -11,6 +11,20 @@ export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
+  // Temporary debug endpoint — remove after confirming proxy works
+  if (url.pathname === "/api/debug-proxy") {
+    const keyExists = !!env.BUREAU_SERVICE_KEY;
+    const keyLength = env.BUREAU_SERVICE_KEY ? env.BUREAU_SERVICE_KEY.length : 0;
+    const keyPrefix = env.BUREAU_SERVICE_KEY ? env.BUREAU_SERVICE_KEY.slice(0, 4) + "..." : "MISSING";
+    return new Response(JSON.stringify({
+      proxyRunning: true,
+      keyExists,
+      keyLength,
+      keyPrefix,
+      envKeys: Object.keys(env).filter(k => k !== "BUREAU_SERVICE_KEY"),
+    }), { headers: { "Content-Type": "application/json" } });
+  }
+
   const targetUrl = `${WORKER_ORIGIN}${url.pathname}${url.search}`;
 
   const headers = new Headers(request.headers);

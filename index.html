@@ -232,35 +232,54 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
 }
 
+// Convert orders to payment line items
+function ordersToLineItems(orders){
+  const items=[];
+  orders.forEach(o=>{
+    const hasDep=o.depositAmt>0;
+    const hasRel=o.releaseAmt>0;
+    if(hasDep&&hasRel){
+      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+    }else if(hasDep){
+      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+    }else if(hasRel){
+      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+    }else{
+      items.push({...o,lineType:"Full Amount",lineAmount:o.totalValue,lineStatus:"unpaid",lineDue:"",linePaid:"",lineKey:o.id+"-full"});
+    }
+  });
+  return items;
+}
+
 // Tabs
 function OrdersTab({orders,payments,onRefresh}){
-  const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fSt,setFSt]=useState("out");const[fAge,setFAge]=useState("6M");
+  const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fSt,setFSt]=useState("all");const[fAge,setFAge]=useState("6M");
   const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);
   const[editOrder,setEditOrder]=useState(null);
-  const[reconStatus,setReconStatus]=useState(null);
   const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
-  const reconcile=async()=>{const cutoff="2026-01-20";const toFix=orders.filter(o=>{const depNeed=o.depositDue&&o.depositDue<cutoff&&o.depositStatus!=="paid";const relNeed=o.releaseDue&&o.releaseDue<cutoff&&o.releaseStatus!=="paid";return depNeed||relNeed;});if(!toFix.length){setReconStatus("No orders need reconciling.");setTimeout(()=>setReconStatus(null),3000);return;}if(!confirm(`Mark ${toFix.length} orders with payments due before 20 Jan 2026 as paid?`))return;setReconStatus(`Updating 0/${toFix.length}...`);let done=0;for(const o of toFix){const updates={};if(o.depositDue&&o.depositDue<cutoff&&o.depositStatus!=="paid"){updates.depositStatus="paid";updates.depositPaid="2026-01-20";}if(o.releaseDue&&o.releaseDue<cutoff&&o.releaseStatus!=="paid"){updates.releaseStatus="paid";updates.releasePaid="2026-01-20";}try{await apiPatch(`/api/orders/${encodeURIComponent(o.id)}`,updates);}catch(e){console.error(`Failed ${o.id}:`,e);}done++;setReconStatus(`Updating ${done}/${toFix.length}...`);}setReconStatus(`Done — ${done} orders marked as paid.`);await onRefresh();setTimeout(()=>setReconStatus(null),5000);};
-  const fl=orders.filter(o=>{if(fAge!=="all"){const months=fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const created=o.created?new Date(o.created):null;if(created&&created<cutoff)return false;}if(fR!=="all"&&o.region!==fR)return false;if(fS!=="all"&&o.supplier!==fS)return false;if(fSt==="paid"&&(o.depositStatus!=="paid"||o.releaseStatus!=="paid"))return false;if(fSt==="out"&&o.depositStatus==="paid"&&o.releaseStatus==="paid")return false;if(fSt==="overdue"){const a=o.depositStatus==="due"&&o.depositDue&&new Date(o.depositDue)<new Date();const b=o.releaseStatus==="due"&&o.releaseDue&&new Date(o.releaseDue)<new Date();if(!a&&!b)return false;}if(search)return(o.ref+o.inv+o.notes+o.supplier).toLowerCase().includes(search.toLowerCase());return true;});
-  const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="total")return(toUSD(a.totalValue,a.currency)-toUSD(b.totalValue,b.currency))*d;if(sort.key==="due")return((a.releaseDue||a.depositDue||"")>(b.releaseDue||b.depositDue||"")?1:-1)*d;return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
-  const tv=fl.reduce((s,o)=>s+toUSD(o.totalValue,o.currency),0);
-  const tp=fl.reduce((s,o)=>{let p=0;if(o.depositStatus==="paid")p+=toUSD(o.depositAmt,o.currency);if(o.releaseStatus==="paid")p+=toUSD(o.releaseAmt,o.currency);return s+p;},0);
+  const allItems=ordersToLineItems(orders);
+  const fl=allItems.filter(item=>{if(fAge!=="all"){const months=fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const created=item.created?new Date(item.created):null;if(created&&created<cutoff)return false;}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(fSt==="unpaid"&&item.lineStatus==="paid")return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
+  const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
+  const tv=fl.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
+  const tp=fl.filter(i=>i.lineStatus==="paid").reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
   return <>
-    <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{fl.length} of {orders.length} orders</p></div><div style={{display:"flex",gap:8,alignItems:"center"}}>{reconStatus&&<span style={{fontSize:12,color:"var(--tx2)"}}>{reconStatus}</span>}<button className="btn btn-ghost" onClick={reconcile} style={{fontSize:12}}>Reconcile Pre-Jan 20</button><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div></div>
+    <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{fl.length} of {allItems.length} line items</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
     {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
-    <div className="sg"><div className="sc"><div className="sl">Orders</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
+    <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
     <div className="filter-bar">
       <input placeholder="Search PO, invoice..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
       <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["3M","6M","1Y"]} value={fAge} onChange={setFAge} allLabel="All"/></div>
       <div className="filter-section"><span className="filter-label">Region</span><BtnGroup options={ENTITIES} value={fR} onChange={setFR} allLabel="All"/></div>
       <div className="filter-section"><span className="filter-label">Supplier</span><BtnGroup options={SUPPLIERS} value={fS} onChange={setFS} allLabel="All"/></div>
-      <div className="filter-section"><span className="filter-label">Status</span><BtnGroup options={["out","paid","overdue"]} value={fSt} onChange={setFSt} allLabel="All"/></div>
+      <div className="filter-section"><span className="filter-label">Status</span><button className={`bg-btn ${fSt==="all"?"bg-act":""}`} onClick={()=>setFSt("all")} style={{borderRadius:"6px 0 0 6px",border:"1px solid var(--bd)"}}>All</button><button className={`bg-btn ${fSt==="unpaid"?"bg-act":""}`} onClick={()=>setFSt("unpaid")} style={{borderRadius:"0 6px 6px 0",border:"1px solid var(--bd)",borderLeft:"none"}}>Unpaid</button></div>
     </div>
-    <div className="tw"><div className="tsc"><table><thead><tr><th>Region</th><th className="srt" onClick={()=>ts("ref")}>PO Ref{si("ref")}</th><th>PO Date</th><th>Invoice</th><th>Supplier</th><th>Total (Orig)</th><th>Total (USD)</th><th>Deposit</th><th>Dep.</th><th>Dep. Paid</th><th>Release</th><th>Rel.</th><th>Rel. Paid</th><th className="srt" onClick={()=>ts("due")}>Due{si("due")}</th><th>💰</th><th>Drive</th><th>Actions</th></tr></thead>
-    <tbody>{sorted.map(o=>{const pmts=payments.filter(p=>(p.orderIds||[]).includes(o.id));return <tr key={o.id}><td><RegionBadge region={o.region}/></td><td className="cb">{o.ref}</td><td className="cm">{fmtDate(o.poDate)}</td><td className="mono">{o.inv}</td><td>{o.supplier}</td><td className="mono">{o.currency!=="USD"?`${(o.totalValue||0).toLocaleString()} ${o.currency}`:"—"}</td><td className="mono">{usd(toUSD(o.totalValue,o.currency))}</td><td className="mono">{usd(toUSD(o.depositAmt,o.currency))}</td><td><StatusBadge status={o.depositStatus} dueDate={o.depositDue}/></td><td className="cm">{fmtDate(o.depositPaid)}</td><td className="mono">{usd(toUSD(o.releaseAmt,o.currency))}</td><td><StatusBadge status={o.releaseStatus} dueDate={o.releaseDue}/></td><td className="cm">{fmtDate(o.releasePaid)}</td><td>{fmtDate(o.releaseDue||o.depositDue)}</td><td>{pmts.length>0?<span title={`${pmts.length} payment${pmts.length>1?"s":""}`} style={{cursor:"pointer"}} onClick={()=>setActiveTab("payments")}>💰{pmts.length>1?pmts.length:""}</span>:<span className="cm">—</span>}</td>
-      <td>{o.driveFolderId?<a href={GDRIVE_BASE+o.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td><button onClick={()=>setEditOrder(o)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(o)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}
-    {!sorted.length&&<tr><td colSpan={17} className="ec">No orders match</td></tr>}</tbody></table></div></div>
+    <div className="tw"><div className="tsc"><table><thead><tr><th></th><th>Region</th><th className="srt" onClick={()=>ts("ref")}>PO Ref{si("ref")}</th><th>Invoice</th><th>Supplier</th><th>Type</th><th>Currency</th><th className="srt" onClick={()=>ts("amount")}>Amount{si("amount")}</th><th>USD Equiv</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th>Paid Date</th><th>Drive</th><th>Actions</th></tr></thead>
+    <tbody>{sorted.map(item=>{const pmts=payments.filter(p=>(p.orderIds||[]).includes(item.id));const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td style={{textAlign:"center"}}>{isPaid?"✓":isOverdue?"🔴":"⚪"}</td><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td>{item.supplier}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono">{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td>
+      <td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}
+    {!sorted.length&&<tr><td colSpan={13} className="ec">No line items match</td></tr>}</tbody></table></div></div>
     {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{setEditOrder(null);await onRefresh();}} onClose={()=>setEditOrder(null)}/>}
   </>;
 }

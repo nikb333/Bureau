@@ -201,6 +201,34 @@ async function updateOrder(token, sheetId, orderId, updates) {
   return rowToOrder(row);
 }
 
+async function deleteOrder(token, sheetId, orderId) {
+  const rows = await readRange(token, sheetId, "Orders", "A2:T5000");
+  const idx = rows.findIndex(r => r[0] === orderId);
+  if (idx === -1) throw new Error(`Order not found: ${orderId}`);
+  const sheetRow = idx + 2;
+
+  // Use batchUpdate to delete the row
+  const meta = await gfetch(`${SHEETS_BASE}/${sheetId}?fields=sheets(properties(sheetId,title))`, token);
+  const metaData = await meta.json();
+  const ordersSheet = metaData.sheets.find(s => s.properties.title === "Orders");
+  if (!ordersSheet) throw new Error("Orders sheet not found");
+
+  const batchRes = await gfetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, token, "POST", {
+    requests: [{
+      deleteDimension: {
+        range: {
+          sheetId: ordersSheet.properties.sheetId,
+          dimension: "ROWS",
+          startIndex: sheetRow - 1,
+          endIndex: sheetRow
+        }
+      }
+    }]
+  });
+
+  return { success: true, deletedId: orderId };
+}
+
 function rowToOrder(row) {
   return {
     id: row[0] || "", region: row[1] || "", ref: row[2] || "", inv: row[3] || "",
@@ -233,6 +261,34 @@ async function addPayment(token, sheetId, payment) {
   ];
   await appendRows(token, sheetId, "Payments", [row]);
   return rowToPayment(row);
+}
+
+async function deletePayment(token, sheetId, paymentId) {
+  const rows = await readRange(token, sheetId, "Payments", "A2:L5000");
+  const idx = rows.findIndex(r => r[0] === paymentId);
+  if (idx === -1) throw new Error(`Payment not found: ${paymentId}`);
+  const sheetRow = idx + 2;
+
+  // Use batchUpdate to delete the row
+  const meta = await gfetch(`${SHEETS_BASE}/${sheetId}?fields=sheets(properties(sheetId,title))`, token);
+  const metaData = await meta.json();
+  const paymentsSheet = metaData.sheets.find(s => s.properties.title === "Payments");
+  if (!paymentsSheet) throw new Error("Payments sheet not found");
+
+  const batchRes = await gfetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, token, "POST", {
+    requests: [{
+      deleteDimension: {
+        range: {
+          sheetId: paymentsSheet.properties.sheetId,
+          dimension: "ROWS",
+          startIndex: sheetRow - 1,
+          endIndex: sheetRow
+        }
+      }
+    }]
+  });
+
+  return { success: true, deletedId: paymentId };
 }
 
 function rowToPayment(row) {
@@ -812,6 +868,14 @@ export default {
         return json({ success: true, order: updated }, 200, origin);
       }
 
+      // DELETE /api/orders/:id
+      if (path.startsWith("/api/orders/") && method === "DELETE") {
+        const orderId = decodeURIComponent(path.replace("/api/orders/", ""));
+        const token = await getToken(env);
+        const result = await deleteOrder(token, sheetId, orderId);
+        return json(result, 200, origin);
+      }
+
       // GET /api/payments
       if (path === "/api/payments" && method === "GET") {
         const token = await getToken(env);
@@ -847,6 +911,14 @@ export default {
           }
         }
         return json({ success: true, payment: created }, 201, origin);
+      }
+
+      // DELETE /api/payments/:id
+      if (path.startsWith("/api/payments/") && method === "DELETE") {
+        const paymentId = decodeURIComponent(path.replace("/api/payments/", ""));
+        const token = await getToken(env);
+        const result = await deletePayment(token, sheetId, paymentId);
+        return json(result, 200, origin);
       }
 
       // GET /api/drive/folders

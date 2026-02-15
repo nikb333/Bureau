@@ -199,7 +199,7 @@ async function parseDoc(file) {
 // Small UI components
 function StatusBadge({status,dueDate}){let l=status,c="badge ";if(status==="due"&&dueDate&&new Date(dueDate)<new Date()){l="overdue";c+="badge-red";}else if(status==="paid")c+="badge-green";else if(status==="due")c+="badge-amber";else c+="badge-grey";return <span className={c}>{l}</span>;}
 function RegionBadge({region}){return <span className={`region-badge region-${region}`}>{region}</span>;}
-function ConfIcon({level}){if(level==="high")return <div className="ci-wrap"><span className="ci ci-h">✓</span><span className="ci-tag ci-tag-h">OK</span></div>;if(level==="medium")return <div className="ci-wrap"><span className="ci ci-m">⚠</span><span className="ci-tag ci-tag-m">Check</span></div>;return <div className="ci-wrap"><span className="ci ci-l">✕</span><span className="ci-tag ci-tag-l">Fix</span></div>;}
+function ConfIcon({level}){if(level==="high")return <div style={{width:28,height:28}}></div>;if(level==="medium")return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,opacity:.6}}>⚠</div>;return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"var(--rd)",fontWeight:700}}>!</div>;}
 function BtnGroup({options,value,onChange,allLabel}){return <div className="btn-group">{allLabel&&<button className={`bg-btn ${value==="all"?"bg-act":""}`} onClick={()=>onChange("all")}>{allLabel}</button>}{options.map(o=><button key={o} className={`bg-btn ${value===o?"bg-act":""}`} onClick={()=>onChange(value===o?"all":o)}>{o}</button>)}</div>;}
 function DropZone({onFiles,compact,label}){const[drag,setDrag]=useState(false);const fRef=useRef();return <div className={`dropzone ${compact?"dz-compact":""} ${drag?"dz-active":""}`} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);onFiles(Array.from(e.dataTransfer?.files||[]));}} onClick={()=>fRef.current?.click()}><input ref={fRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple style={{display:"none"}} onChange={e=>{onFiles(Array.from(e.target.files||[]));e.target.value="";}}/>{compact?<div className="dz-ci"><span>📎</span><span>{label||"Drop file or click to upload"}</span></div>:<><div style={{fontSize:36,marginBottom:10}}>📎</div><div style={{fontSize:15,fontWeight:600,marginBottom:4}}>{label||"Drop documents here"}</div><div style={{fontSize:12,color:"var(--tx3)"}}>PDF, PNG, or JPG</div></>}</div>;}
 
@@ -211,28 +211,27 @@ function EditOrderModal({order,onSave,onClose}){const[ed,setEd]=useState({...ord
 
 // RemittanceAllocationUI — Xero-style clean allocation interface
 function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,orders,payments}){
-  const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const cd=parsed?.confidence_details||{};
+  const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   const[allocs,setAllocs]=useState([]);const[search,setSearch]=useState("");
+  const[selectedPO,setSelectedPO]=useState(null);const[partialAmt,setPartialAmt]=useState("");
   const payAmt=+(ed.amount)||0;
   const allocTotal=allocs.reduce((s,a)=>s+a.amount,0);const remaining=payAmt-allocTotal;
   const matches=useMemo(()=>search.trim()?fuzzyMatchPO(search,orders,payments).filter(m=>!allocs.find(a=>a.orderId===m.id)&&m.hasBalance):[],[search,orders,payments,allocs]);
 
   useEffect(()=>{
     const autoRef=ed?.po_references?.[0]||ed?.reference||"";
-    if(autoRef&&allocs.length===0){
+    if(autoRef&&!selectedPO){
       const auto=fuzzyMatchPO(autoRef,orders,payments);
-      if(auto.length>0&&auto[0].score>=75){
-        const m=auto[0];const suggestedAmt=Math.min(payAmt,m.outstanding);
-        addAlloc(m,suggestedAmt);}
+      if(auto.length>0&&auto[0].score>=75){setSelectedPO(auto[0]);setPartialAmt(Math.min(payAmt,auto[0].outstanding).toString());}
     }
   },[]);
 
-  const addAlloc=(o,amt)=>{if(allocs.find(a=>a.orderId===o.id))return;setAllocs(p=>[...p,{orderId:o.id,ref:o.ref,supplier:o.supplier,inv:o.inv,region:o.region,totalUSD:o.totalUSD,outstanding:o.outstanding,amount:amt||0,order:o}]);setSearch("");};
+  const selectPO=po=>{setSelectedPO(po);setPartialAmt(Math.min(remaining,po.outstanding).toString());setSearch("");};
+  const payFull=()=>{if(!selectedPO)return;const amt=Math.min(remaining,selectedPO.outstanding);setAllocs(p=>[...p,{orderId:selectedPO.id,ref:selectedPO.ref,supplier:selectedPO.supplier,inv:selectedPO.inv,region:selectedPO.region,totalUSD:selectedPO.totalUSD,outstanding:selectedPO.outstanding,amount:amt,order:selectedPO}]);setSelectedPO(null);setPartialAmt("");};
+  const payPartial=()=>{if(!selectedPO)return;const amt=+(partialAmt)||0;if(amt<=0){alert("Enter a valid amount");return;}if(amt>selectedPO.outstanding){alert(`Amount exceeds outstanding balance of ${usd(selectedPO.outstanding)}`);return;}if(amt>remaining){alert(`Amount exceeds remaining payment of ${usd(remaining)}`);return;}setAllocs(p=>[...p,{orderId:selectedPO.id,ref:selectedPO.ref,supplier:selectedPO.supplier,inv:selectedPO.inv,region:selectedPO.region,totalUSD:selectedPO.totalUSD,outstanding:selectedPO.outstanding,amount:amt,order:selectedPO}]);setSelectedPO(null);setPartialAmt("");};
+  const cancelSelect=()=>{setSelectedPO(null);setPartialAmt("");};
   const rmAlloc=oid=>setAllocs(p=>p.filter(a=>a.orderId!==oid));
-  const setAllocAmt=(oid,amt)=>setAllocs(p=>p.map(a=>a.orderId===oid?{...a,amount:+(amt)||0}:a));
-  const payOutstanding=(oid)=>setAllocs(p=>p.map(a=>a.orderId===oid?{...a,amount:Math.min(remaining+a.amount,a.outstanding)}:a));
-
-  const handleConfirm=()=>{if(allocs.length===0){alert("Please allocate payment to at least one PO");return;}if(remaining<-0.01){alert(`Over-allocated by ${usd(Math.abs(remaining))}. Total allocations cannot exceed payment amount.`);return;}setEd(p=>({...p,_allocations:allocs}));onConfirm();};
+  const handleConfirm=()=>{if(allocs.length===0){alert("Please allocate payment to at least one PO");return;}if(Math.abs(remaining)>0.01){alert(`Must allocate exact payment amount.\nRemaining: ${usd(remaining)}\n\n${remaining>0?"Add more POs or adjust amounts":"Remove allocations or reduce amounts"}`);return;}setEd(p=>({...p,_allocations:allocs}));onConfirm();};
 
   return <div className="rc">
     <div className="rc-h"><div><div className="rc-t">Allocate Remittance</div><div className="rc-f">{fileName}</div></div><div style={{fontSize:13,color:"var(--tx2)"}}>Payment: <span className="mono" style={{fontWeight:700,color:"var(--tx)"}}>{usd(payAmt)}</span></div></div>
@@ -247,20 +246,33 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,ord
 
     <div className="rs-t">Allocate to Purchase Orders</div>
     <div style={{padding:"0 22px 16px"}}>
-      <input className="ri" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search PO ref, invoice, supplier..." style={{width:"100%",marginBottom:12}}/>
-      {search.trim()&&matches.length>0&&<div style={{marginBottom:16,maxHeight:200,overflow:"auto",border:"1px solid var(--bd)",borderRadius:"var(--r)"}}>{matches.slice(0,5).map(m=><div key={m.id} onClick={()=>addAlloc(m,Math.min(remaining,m.outstanding))} style={{padding:"10px 14px",borderBottom:"1px solid var(--s2)",cursor:"pointer",transition:"background .15s"}} onMouseEnter={e=>e.currentTarget.style.background="var(--s2)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}><div style={{display:"flex",alignItems:"center",gap:10}}><RegionBadge region={m.region}/><span style={{fontWeight:700,fontSize:13}}>{m.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{m.inv} · {m.supplier}</span><span style={{marginLeft:"auto",fontSize:12,fontWeight:600,color:"var(--am)"}}>{usd(m.outstanding)} outstanding</span></div></div>)}</div>}
+      {!selectedPO&&<input className="ri" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search PO ref, invoice, supplier..." style={{width:"100%",marginBottom:12}}/>}
 
-      {allocs.length>0&&<div>{allocs.map(a=><div key={a.orderId} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:"var(--r)",marginBottom:8}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><RegionBadge region={a.region}/><span style={{fontWeight:700,fontSize:13}}>{a.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span></div><div style={{fontSize:10,color:"var(--tx3)"}}>Outstanding: {usd(a.outstanding)} of {usd(a.totalUSD)}</div></div><div style={{display:"flex",alignItems:"center",gap:6}}><input type="number" step="0.01" value={a.amount} onChange={e=>setAllocAmt(a.orderId,e.target.value)} className="ri" style={{width:120,fontFamily:"'JetBrains Mono',monospace"}}/><button onClick={()=>payOutstanding(a.orderId)} className="btn btn-ghost" style={{padding:"6px 10px",fontSize:11,whiteSpace:"nowrap"}}>Pay Outstanding</button><button onClick={()=>rmAlloc(a.orderId)} style={{background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:18,padding:"4px 8px"}}>×</button></div></div>)}</div>}
+      {!selectedPO&&search.trim()&&matches.length>0&&<div style={{marginBottom:16,maxHeight:200,overflow:"auto",border:"1px solid var(--bd)",borderRadius:"var(--r)"}}>{matches.slice(0,5).map(m=><div key={m.id} onClick={()=>selectPO(m)} style={{padding:"10px 14px",borderBottom:"1px solid var(--s2)",cursor:"pointer",transition:"background .15s"}} onMouseEnter={e=>e.currentTarget.style.background="var(--s2)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}><div style={{display:"flex",alignItems:"center",gap:10}}><RegionBadge region={m.region}/><span style={{fontWeight:700,fontSize:13}}>{m.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{m.inv} · {m.supplier}</span><span style={{marginLeft:"auto",fontSize:12,fontWeight:600,color:"var(--am)"}}>{usd(m.outstanding)} outstanding</span></div></div>)}</div>}
 
-      {allocs.length===0&&!search&&<div style={{textAlign:"center",padding:32,color:"var(--tx3)",background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>Search and select POs to allocate payment</div>}
+      {selectedPO&&<div style={{padding:"16px 18px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",border:"2px solid var(--am)",borderRadius:"var(--r2)",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}><RegionBadge region={selectedPO.region}/><span style={{fontWeight:700,fontSize:14}}>{selectedPO.ref}</span><span style={{fontSize:12,color:"var(--tx2)"}}>{selectedPO.inv} · {selectedPO.supplier}</span></div>
+        <div style={{fontSize:12,color:"var(--tx2)",marginBottom:12}}>Total: {usd(selectedPO.totalUSD)} · <span style={{fontWeight:600,color:"var(--am)"}}>Outstanding: {usd(selectedPO.outstanding)}</span></div>
+        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+          <div style={{flex:1}}><div style={{fontSize:11,color:"var(--tx2)",marginBottom:4,fontWeight:600}}>Partial Amount</div><input type="number" step="0.01" value={partialAmt} onChange={e=>setPartialAmt(e.target.value)} className="ri" style={{width:"100%",fontFamily:"'JetBrains Mono',monospace"}} placeholder={usd(Math.min(remaining,selectedPO.outstanding))}/></div>
+          <button onClick={payPartial} className="btn btn-primary" style={{padding:"8px 14px",fontSize:12}}>Pay Partial</button>
+          <button onClick={payFull} className="btn btn-primary" style={{padding:"8px 14px",fontSize:12,background:"var(--gn)"}}>Pay Full ({usd(Math.min(remaining,selectedPO.outstanding))})</button>
+          <button onClick={cancelSelect} className="btn btn-ghost" style={{padding:"8px 12px",fontSize:12}}>Cancel</button>
+        </div>
+      </div>}
+
+      {allocs.length>0&&<div style={{marginTop:16}}><div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:8}}>Allocated</div>{allocs.map(a=>{const isPartial=a.amount<a.outstanding-0.01;return <div key={a.orderId} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:isPartial?"linear-gradient(135deg,#fffbeb,#fef9e6)":"var(--s2)",border:isPartial?"1px solid var(--am)":"1px solid var(--bd)",borderRadius:"var(--r)",marginBottom:8}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><RegionBadge region={a.region}/><span style={{fontWeight:700,fontSize:13}}>{a.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span>{isPartial&&<span style={{fontSize:10,fontWeight:700,color:"var(--am)",background:"rgba(217,119,6,.15)",padding:"2px 6px",borderRadius:4}}>PARTIAL</span>}</div><div style={{fontSize:11,color:"var(--tx2)"}}>Allocated: <span className="mono" style={{fontWeight:600}}>{usd(a.amount)}</span> of {usd(a.outstanding)} outstanding</div></div><button onClick={()=>rmAlloc(a.orderId)} style={{background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:20,padding:"4px 8px",fontWeight:600}} title="Remove">×</button></div>})}</div>}
+
+      {allocs.length===0&&!selectedPO&&!search&&<div style={{textAlign:"center",padding:32,color:"var(--tx3)",background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>Search and select POs to allocate payment</div>}
     </div>
 
-    <div style={{padding:"16px 22px",background:"var(--s2)",borderTop:"1px solid var(--bd)"}}>
+    <div style={{padding:"16px 22px",background:Math.abs(remaining)>0.01?"linear-gradient(135deg,#fef2f2,#fee)":"var(--s2)",borderTop:Math.abs(remaining)>0.01?"2px solid var(--rd)":"1px solid var(--bd)"}}>
       <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:6}}><span style={{fontWeight:600}}>Total Allocated:</span><span className="mono" style={{fontWeight:700}}>{usd(allocTotal)}</span></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:14}}><span style={{fontWeight:600}}>Remaining:</span><span className="mono" style={{fontWeight:700,color:remaining<-0.01?"var(--rd)":remaining>0.01?"var(--am)":"var(--gn)"}}>{usd(remaining)}</span></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14}}><span style={{fontWeight:600}}>Remaining:</span><span className="mono" style={{fontWeight:700,color:Math.abs(remaining)<0.01?"var(--gn)":"var(--rd)"}}>{usd(remaining)}</span></div>
+      {Math.abs(remaining)>0.01&&<div style={{fontSize:11,color:"var(--rd)",marginTop:6,fontWeight:600}}>⚠ Must allocate exact payment amount to confirm</div>}
     </div>
 
-    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className="btn btn-primary" onClick={handleConfirm} disabled={allocs.length===0}>✓ Confirm & Save</button></div>
+    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className="btn btn-primary" onClick={handleConfirm} disabled={allocs.length===0||Math.abs(remaining)>0.01}>Confirm & Save</button></div>
   </div>;
 }
 

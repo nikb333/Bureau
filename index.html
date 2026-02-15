@@ -209,6 +209,61 @@ function HelpModal({onClose}){return <div style={{position:"fixed",top:0,left:0,
 // EditOrderModal
 function EditOrderModal({order,onSave,onClose}){const[ed,setEd]=useState({...order});const[saving,setSaving]=useState(false);const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const save=async()=>{setSaving(true);try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,totalValue:+(ed.totalValue)||0,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}};return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}><h2 style={{marginBottom:20}}>Edit Order: {order.ref}</h2><div style={{display:"grid",gap:12}}><label>PO Ref: <input className="ri" value={ed.ref||""} onChange={e=>sf("ref",e.target.value)}/></label><label>Invoice: <input className="ri" value={ed.inv||""} onChange={e=>sf("inv",e.target.value)}/></label><label>Supplier: <select className="ri" value={ed.supplier||""} onChange={e=>sf("supplier",e.target.value)}><option value="">Select...</option>{SUPPLIERS.map(s=><option key={s}>{s}</option>)}</select></label><label>PO Date: <input className="ri" type="date" value={ed.poDate||""} onChange={e=>sf("poDate",e.target.value)}/></label><label>Currency: <select className="ri" value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></label><label>Total Value: <input className="ri" type="number" step="0.01" value={ed.totalValue||0} onChange={e=>sf("totalValue",e.target.value)}/></label><label>Deposit Amount: <input className="ri" type="number" step="0.01" value={ed.depositAmt||0} onChange={e=>sf("depositAmt",e.target.value)}/></label><label>Deposit Status: <select className="ri" value={ed.depositStatus||"unpaid"} onChange={e=>sf("depositStatus",e.target.value)}><option>unpaid</option><option>due</option><option>paid</option></select></label><label>Deposit Due: <input className="ri" type="date" value={ed.depositDue||""} onChange={e=>sf("depositDue",e.target.value)}/></label><label>Deposit Paid: <input className="ri" type="date" value={ed.depositPaid||""} onChange={e=>sf("depositPaid",e.target.value)}/></label><label>Release Amount: <input className="ri" type="number" step="0.01" value={ed.releaseAmt||0} onChange={e=>sf("releaseAmt",e.target.value)}/></label><label>Release Status: <select className="ri" value={ed.releaseStatus||"unpaid"} onChange={e=>sf("releaseStatus",e.target.value)}><option>unpaid</option><option>due</option><option>paid</option></select></label><label>Release Due: <input className="ri" type="date" value={ed.releaseDue||""} onChange={e=>sf("releaseDue",e.target.value)}/></label><label>Release Paid: <input className="ri" type="date" value={ed.releasePaid||""} onChange={e=>sf("releasePaid",e.target.value)}/></label><label>Notes: <input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)}/></label></div><div style={{display:"flex",gap:12,marginTop:20,justifyContent:"flex-end"}}><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button></div></div></div>;}
 
+// RemittanceAllocationUI — Xero-style clean allocation interface
+function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,orders,payments}){
+  const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const cd=parsed?.confidence_details||{};
+  const[allocs,setAllocs]=useState([]);const[search,setSearch]=useState("");
+  const payAmt=+(ed.amount)||0;
+  const allocTotal=allocs.reduce((s,a)=>s+a.amount,0);const remaining=payAmt-allocTotal;
+  const matches=useMemo(()=>search.trim()?fuzzyMatchPO(search,orders,payments).filter(m=>!allocs.find(a=>a.orderId===m.id)&&m.hasBalance):[],[search,orders,payments,allocs]);
+
+  useEffect(()=>{
+    const autoRef=ed?.po_references?.[0]||ed?.reference||"";
+    if(autoRef&&allocs.length===0){
+      const auto=fuzzyMatchPO(autoRef,orders,payments);
+      if(auto.length>0&&auto[0].score>=75){
+        const m=auto[0];const suggestedAmt=Math.min(payAmt,m.outstanding);
+        addAlloc(m,suggestedAmt);}
+    }
+  },[]);
+
+  const addAlloc=(o,amt)=>{if(allocs.find(a=>a.orderId===o.id))return;setAllocs(p=>[...p,{orderId:o.id,ref:o.ref,supplier:o.supplier,inv:o.inv,region:o.region,totalUSD:o.totalUSD,outstanding:o.outstanding,amount:amt||0,order:o}]);setSearch("");};
+  const rmAlloc=oid=>setAllocs(p=>p.filter(a=>a.orderId!==oid));
+  const setAllocAmt=(oid,amt)=>setAllocs(p=>p.map(a=>a.orderId===oid?{...a,amount:+(amt)||0}:a));
+  const payOutstanding=(oid)=>setAllocs(p=>p.map(a=>a.orderId===oid?{...a,amount:Math.min(remaining+a.amount,a.outstanding)}:a));
+
+  const handleConfirm=()=>{if(allocs.length===0){alert("Please allocate payment to at least one PO");return;}if(remaining<-0.01){alert(`Over-allocated by ${usd(Math.abs(remaining))}. Total allocations cannot exceed payment amount.`);return;}setEd(p=>({...p,_allocations:allocs}));onConfirm();};
+
+  return <div className="rc">
+    <div className="rc-h"><div><div className="rc-t">Allocate Remittance</div><div className="rc-f">{fileName}</div></div><div style={{fontSize:13,color:"var(--tx2)"}}>Payment: <span className="mono" style={{fontWeight:700,color:"var(--tx)"}}>{usd(payAmt)}</span></div></div>
+
+    <div className="rs-t">Payment Details</div>
+    <div style={{padding:"0 22px 16px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Source Entity</div><select value={ed.source_entity||""} onChange={e=>sf("source_entity",e.target.value)} className="ri"><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></div>
+      <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Bank Account</div><select value={ed.bank_account_hint||""} onChange={e=>sf("bank_account_hint",e.target.value)} className="ri"><option value="">Auto...</option>{BANKS.map(b=><option key={b.id} value={b.hint}>{b.label}</option>)}</select></div>
+      <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Payment Date</div><input className="ri" type="date" value={ed.payment_date||""} onChange={e=>sf("payment_date",e.target.value)}/></div>
+      <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Amount</div><div style={{display:"flex",gap:8}}><input className="ri" style={{flex:1,fontFamily:"'JetBrains Mono',monospace"}} type="number" step="0.01" value={ed.amount||0} onChange={e=>sf("amount",e.target.value)}/><select value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)} className="ri" style={{width:90}}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div></div>
+    </div>
+
+    <div className="rs-t">Allocate to Purchase Orders</div>
+    <div style={{padding:"0 22px 16px"}}>
+      <input className="ri" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search PO ref, invoice, supplier..." style={{width:"100%",marginBottom:12}}/>
+      {search.trim()&&matches.length>0&&<div style={{marginBottom:16,maxHeight:200,overflow:"auto",border:"1px solid var(--bd)",borderRadius:"var(--r)"}}>{matches.slice(0,5).map(m=><div key={m.id} onClick={()=>addAlloc(m,Math.min(remaining,m.outstanding))} style={{padding:"10px 14px",borderBottom:"1px solid var(--s2)",cursor:"pointer",transition:"background .15s"}} onMouseEnter={e=>e.currentTarget.style.background="var(--s2)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}><div style={{display:"flex",alignItems:"center",gap:10}}><RegionBadge region={m.region}/><span style={{fontWeight:700,fontSize:13}}>{m.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{m.inv} · {m.supplier}</span><span style={{marginLeft:"auto",fontSize:12,fontWeight:600,color:"var(--am)"}}>{usd(m.outstanding)} outstanding</span></div></div>)}</div>}
+
+      {allocs.length>0&&<div>{allocs.map(a=><div key={a.orderId} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:"var(--r)",marginBottom:8}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}><RegionBadge region={a.region}/><span style={{fontWeight:700,fontSize:13}}>{a.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span></div><div style={{fontSize:10,color:"var(--tx3)"}}>Outstanding: {usd(a.outstanding)} of {usd(a.totalUSD)}</div></div><div style={{display:"flex",alignItems:"center",gap:6}}><input type="number" step="0.01" value={a.amount} onChange={e=>setAllocAmt(a.orderId,e.target.value)} className="ri" style={{width:120,fontFamily:"'JetBrains Mono',monospace"}}/><button onClick={()=>payOutstanding(a.orderId)} className="btn btn-ghost" style={{padding:"6px 10px",fontSize:11,whiteSpace:"nowrap"}}>Pay Outstanding</button><button onClick={()=>rmAlloc(a.orderId)} style={{background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:18,padding:"4px 8px"}}>×</button></div></div>)}</div>}
+
+      {allocs.length===0&&!search&&<div style={{textAlign:"center",padding:32,color:"var(--tx3)",background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>Search and select POs to allocate payment</div>}
+    </div>
+
+    <div style={{padding:"16px 22px",background:"var(--s2)",borderTop:"1px solid var(--bd)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,marginBottom:6}}><span style={{fontWeight:600}}>Total Allocated:</span><span className="mono" style={{fontWeight:700}}>{usd(allocTotal)}</span></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14}}><span style={{fontWeight:600}}>Remaining:</span><span className="mono" style={{fontWeight:700,color:remaining<-0.01?"var(--rd)":remaining>0.01?"var(--am)":"var(--gn)"}}>{usd(remaining)}</span></div>
+    </div>
+
+    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className="btn btn-primary" onClick={handleConfirm} disabled={allocs.length===0}>✓ Confirm & Save</button></div>
+  </div>;
+}
+
 // ReviewScreen
 function ReviewScreen({parsed,ed,setEd,docType,onConfirm,onCancel,fileName,orders,payments}){
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const cd=parsed?.confidence_details||{};const oc=parsed?.confidence||"medium";
@@ -277,7 +332,46 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);setEd(r);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
   const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
     if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",totalValue:+(d.total_value)||0,depositAmt:+(d.deposit_amount)||0,depositStatus:"due",releaseAmt:+(d.release_amount)||(+(d.total_value)-+(d.deposit_amount))||0,releaseStatus:"unpaid",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
-    else if(dt==="remittance"){const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};const ref=(d.po_references?.[0]||d.reference||"").trim();const existingPayment=fuzzyMatchPayment(d,payments);if(existingPayment&&!existingPayment.docName){const confirmMsg=`Found existing payment:\n• Date: ${existingPayment.date}\n• Amount: $${existingPayment.amount.toLocaleString()}\n• From: ${existingPayment.sourceEntity}\n\nAttach this remittance to the existing payment?`;if(confirm(confirmMsg)){await apiPatch(`/api/payments/${encodeURIComponent(existingPayment.id)}`,{docName:file?.name,notes:(existingPayment.notes||"")+(d.notes?"\n"+d.notes:"")});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);return;}}const ms=fuzzyMatchPO(ref,orders,payments),m=ms.length>0&&ms[0].score>=75?ms[0]:null;if(m){const payAmt=+(d.amount)||0;let isPartial=false,partialMsg="";if(d.payment_type==="Full Amount"){const poTotal=m.totalUSD||0,pctDiff=Math.abs(payAmt-poTotal)/poTotal;if(pctDiff>0.05){if(payAmt<poTotal){isPartial=true;partialMsg=`This appears to be a PARTIAL payment:\n• Payment: ${usd(payAmt)}\n• PO ${m.ref} Total: ${usd(poTotal)}\n• Difference: ${usd(poTotal-payAmt)} (${(pctDiff*100).toFixed(0)}% short)\n\nProceed with partial payment?`;}else{throw new Error(`Payment ${usd(payAmt)} exceeds PO ${m.ref} total ${usd(poTotal)}. Check amount or PO.`);}}}else if(d.payment_type==="Deposit"){const depAmt=m.depAmtUSD||toUSD(m.depositAmt,m.currency),pctDiff=depAmt>0?Math.abs(payAmt-depAmt)/depAmt:1;if(depAmt>0&&pctDiff>0.05){if(payAmt<depAmt){isPartial=true;partialMsg=`This appears to be a PARTIAL deposit payment:\n• Payment: ${usd(payAmt)}\n• PO ${m.ref} Deposit: ${usd(depAmt)}\n• Difference: ${usd(depAmt-payAmt)} (${(pctDiff*100).toFixed(0)}% short)\n\nProceed with partial payment?`;}else if(pctDiff>0.1){throw new Error(`Payment ${usd(payAmt)} exceeds PO ${m.ref} deposit ${usd(depAmt)}. Check payment type or amount.`);}}}else if(d.payment_type==="Release"){const relAmt=m.relAmtUSD||toUSD(m.releaseAmt,m.currency),pctDiff=relAmt>0?Math.abs(payAmt-relAmt)/relAmt:1;if(relAmt>0&&pctDiff>0.05){if(payAmt<relAmt){isPartial=true;partialMsg=`This appears to be a PARTIAL release payment:\n• Payment: ${usd(payAmt)}\n• PO ${m.ref} Release: ${usd(relAmt)}\n• Difference: ${usd(relAmt-payAmt)} (${(pctDiff*100).toFixed(0)}% short)\n\nProceed with partial payment?`;}else if(pctDiff>0.1){throw new Error(`Payment ${usd(payAmt)} exceeds PO ${m.ref} release ${usd(relAmt)}. Check payment type or amount.`);}}}if(isPartial&&!confirm(partialMsg))return;}await apiPost("/api/payments",{orderIds:m?[m.id]:[],allocations:m?{[m.id]:+(d.amount)||0}:{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}
+    else if(dt==="remittance"){
+      const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
+      const allocs=d._allocations||[];
+      const orderIds=allocs.map(a=>a.orderId);
+      const allocations={};
+      allocs.forEach(a=>{allocations[a.orderId]=a.amount;});
+
+      // Auto-detect payment type based on what's being paid
+      let paymentType="Full Amount";
+      if(allocs.length===1){
+        const alloc=allocs[0];
+        const order=alloc.order;
+        const allocAmt=alloc.amount;
+        const depAmt=toUSD(order.depositAmt,order.currency);
+        const relAmt=toUSD(order.releaseAmt,order.currency);
+        // Check if amount matches deposit or release
+        const depMatch=depAmt>0&&Math.abs(allocAmt-depAmt)/depAmt<0.05;
+        const relMatch=relAmt>0&&Math.abs(allocAmt-relAmt)/relAmt<0.05;
+        if(depMatch)paymentType="Deposit";
+        else if(relMatch)paymentType="Release";
+      }
+
+      await apiPost("/api/payments",{
+        orderIds,
+        allocations,
+        bankAccount:bm[d.bank_account_hint]||"us-chase",
+        sourceEntity:d.source_entity||"US",
+        amount:+(d.amount)||0,
+        currency:d.currency||"USD",
+        date:d.payment_date||new Date().toISOString().slice(0,10),
+        type:paymentType,
+        notes:d.notes||"",
+        docName:file?.name
+      });
+
+      // Upload file to first PO's folder
+      if(file&&allocs.length>0){
+        try{await apiUploadFile(file,allocs[0].ref);}catch(e){}
+      }
+    }
     else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
     if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
   }catch(e){setError("Save failed: "+e.message);setSt("review");}};
@@ -286,6 +380,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   if(st==="parsing")return <div className="il-p"><div className="spinner"/><span>Parsing {file?.name}...</span></div>;
   if(st==="saving")return <div className="il-p"><div className="spinner"/><span>Saving...</span></div>;
   if(st==="done")return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>Saved</span></div>;
+  if(st==="review"&&docType==="remittance")return <>{error&&<div className="err">{error}</div>}<RemittanceAllocationUI parsed={parsed} ed={ed} setEd={setEd} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
   return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
 }
 

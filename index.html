@@ -197,7 +197,9 @@ function fuzzyMatchPO(input, orders, payments) {
   const clean=s=>(s||"").replace(/[\s\-_\.#,/\\()]+/g,"").toLowerCase(), extractNums=s=>(s||"").match(/\d+/g)||[];
   const q=clean(input),qNums=extractNums(input), cutoff=new Date(); cutoff.setMonth(cutoff.getMonth()-3);
   const paidMap={}; (payments||[]).forEach(p=>Object.entries(p.allocations||{}).forEach(([oid,amt])=>{paidMap[oid]=(paidMap[oid]||0)+amt;}));
-  return orders.map(o=>{let score=0,reason="";const rc=clean(o.ref),ic=clean(o.inv);if(rc===q||ic===q){score=100;reason="Exact";}else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}const tot=toUSD(o.totalValue,o.currency),pd=paidMap[o.id]||0,out=tot-pd,bal=out>0.01;if(score>0&&bal)score+=5;return{...o,score,reason,outstanding:out,paid:pd,totalUSD:tot,hasBalance:bal};}).filter(o=>o.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
+  return orders.map(o=>{let score=0,reason="";const rc=clean(o.ref),ic=clean(o.inv);if(rc===q||ic===q){score=100;reason="Exact";}else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}const tot=toUSD(o.totalValue,o.currency),pd=paidMap[o.id]||0,out=tot-pd,bal=out>0.01;if(score>0&&bal)score+=5;
+    const depUSD=toUSD(o.depositAmt,o.currency),relUSD=toUSD(o.releaseAmt,o.currency);
+    return{...o,score,reason,outstanding:out,paid:pd,totalUSD:tot,hasBalance:bal,depUSD,relUSD,depStatus:o.depositStatus||"unpaid",relStatus:o.releaseStatus||"unpaid"};}).filter(o=>o.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
 }
 
 // Doc parser — calls Worker /api/parse (server-side Anthropic call)
@@ -238,7 +240,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onConfirm,onCancel,fileName,order
   const Row=({label,field,conf,children})=>{const c=conf||cd[field]||oc;return <div className="rr"><div className="rr-s"><ConfIcon level={c}/></div><div className="rr-l">{label}</div><div className="rr-i">{children}</div></div>;};
   const refInput=ed?.po_references?.[0]||ed?.reference||ed?.po_reference||"";
   const matches=useMemo(()=>(docType==="remittance"||docType==="commercial_invoice"||docType==="freight_invoice")?fuzzyMatchPO(refInput,orders,payments):[],[refInput,orders,payments,docType]);
-  const handleConfirm=()=>{if(multiPO&&allocs.length>0){setEd(p=>({...p,_multiAllocs:allocs}));setTimeout(()=>onConfirm(),0);}else onConfirm();};
+  const handleConfirm=()=>{if(multiPO&&allocs.length>0){const allocObj={};const oids=[];allocs.forEach(a=>{allocObj[a.orderId]=a.amount;oids.push(a.orderId);});setEd(p=>({...p,_multiAllocs:allocs,_splitOrderIds:oids,_splitAllocations:allocObj}));setTimeout(()=>onConfirm(),0);}else onConfirm();};
 
   return <div className="rc">
     <div className="rc-h"><div><div className="rc-t">Review Extracted Data</div><div className="rc-f">{fileName}</div></div><div className={`rc-c rc-c-${oc}`}>{oc==="high"?"✓ High Confidence":oc==="medium"?"? Check Fields":"⚠ Needs Review"}</div></div>
@@ -269,7 +271,46 @@ function ReviewScreen({parsed,ed,setEd,docType,onConfirm,onCancel,fileName,order
       <Row label="Type" conf="high"><select value={ed.payment_type||"Deposit"} onChange={e=>sf("payment_type",e.target.value)} className="ri">{PAYMENT_TYPES.map(t=><option key={t}>{t}</option>)}</select></Row>
       <div className="rs-t">Match to Purchase Order</div>
       <Row label="PO Reference" field="po_references"><input className="ri" value={refInput} onChange={e=>sf("po_references",[e.target.value])} placeholder="Type PO# to search..."/></Row>
-      {refInput.trim()&&matches.length>0&&<div className="mr">{matches.map(m=><div key={m.id} className={`mr-row ${m.score>=85?"mr-best":""}`} onClick={()=>sf("po_references",[m.ref])}><div className="mr-sw">{m.score>=85?<span className="ci ci-h">✓</span>:<span className="ci ci-m">⚠</span>}</div><div className="mr-info"><div className="mr-ref">{m.ref}</div><div className="mr-det">{m.inv} · {m.supplier} · <RegionBadge region={m.region}/></div></div><div className="mr-amt"><div className="mr-tot">{usd(m.totalUSD)}</div>{m.hasBalance?<div className="mr-out">Bal: {usd(m.outstanding)}</div>:<div className="mr-fp">Fully paid</div>}</div><div className="mr-pct">{m.score}%</div></div>)}</div>}
+      {refInput.trim()&&matches.length>0&&<div className="mr">{matches.map(m=>{
+        const payAmt=+(ed.amount)||0;
+        const depMatch=m.depUSD>0&&m.depStatus!=="paid"&&Math.abs(payAmt-m.depUSD)/m.depUSD<0.1;
+        const relMatch=m.relUSD>0&&m.relStatus!=="paid"&&Math.abs(payAmt-m.relUSD)/m.relUSD<0.1;
+        const fullMatch=m.totalUSD>0&&Math.abs(payAmt-m.totalUSD)/m.totalUSD<0.05;
+        const autoType=depMatch?"Deposit":relMatch?"Release":fullMatch?"Full Amount":null;
+        return <div key={m.id} className={`mr-row ${m.score>=85?"mr-best":""}`} onClick={()=>{sf("po_references",[m.ref]);if(autoType)sf("payment_type",autoType);setMultiPO(false);setAllocs([]);}}><div className="mr-sw">{m.score>=85?<span className="ci ci-h">✓</span>:<span className="ci ci-m">⚠</span>}</div><div className="mr-info"><div className="mr-ref">{m.ref}{autoType&&<span className="badge badge-green" style={{marginLeft:8,fontSize:10}}>Matches {autoType}</span>}</div><div className="mr-det">{m.inv} · {m.supplier} · <RegionBadge region={m.region}/></div>
+          <div style={{display:"flex",gap:12,marginTop:4,fontSize:11}}>
+            <span style={{color:m.depStatus==="paid"?"var(--gn)":"var(--am)",fontWeight:600}}>Dep: {usd(m.depUSD)} {m.depStatus==="paid"?"✓":m.depStatus==="due"?"due":"unpaid"}</span>
+            <span style={{color:m.relStatus==="paid"?"var(--gn)":"var(--am)",fontWeight:600}}>Rel: {usd(m.relUSD)} {m.relStatus==="paid"?"✓":m.relStatus==="due"?"due":"unpaid"}</span>
+          </div>
+        </div><div className="mr-amt"><div className="mr-tot">{usd(m.totalUSD)}</div>{m.hasBalance?<div className="mr-out">Owing: {usd(m.outstanding)}</div>:<div className="mr-fp">Fully paid</div>}</div><div className="mr-pct">{m.score}%</div></div>})}</div>}
+
+      {/* Split payment toggle */}
+      <div style={{margin:"8px 22px 0 66px"}}><label style={{fontSize:12,fontWeight:600,color:"var(--tx2)",cursor:"pointer",display:"flex",alignItems:"center",gap:6}}><input type="checkbox" checked={multiPO} onChange={e=>{setMultiPO(e.target.checked);if(!e.target.checked)setAllocs([]);}}/> Split payment across multiple POs</label></div>
+
+      {multiPO&&<div style={{margin:"8px 22px 12px 66px",padding:14,background:"var(--s2)",borderRadius:"var(--r)",border:"1px solid var(--bd)"}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:8,color:"var(--tx2)"}}>Allocate {usd(+(ed.amount)||0)} across POs</div>
+        {allocs.map(a=><div key={a.orderId} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <span style={{fontWeight:600,fontSize:12,minWidth:70}}>{a.ref}</span>
+          <span style={{fontSize:11,color:"var(--tx3)",minWidth:50}}>{a.lineType||""}</span>
+          <input type="number" step="0.01" value={a.amount||""} onChange={e=>setAllocAmt(a.orderId,e.target.value)} style={{width:110,padding:"4px 8px",border:"1px solid var(--bd)",borderRadius:4,fontSize:12,fontFamily:"'JetBrains Mono',monospace"}} placeholder="Amount"/>
+          <button onClick={()=>rmAlloc(a.orderId)} style={{background:"none",border:"none",cursor:"pointer",color:"var(--rd)",fontSize:14}}>✕</button>
+        </div>)}
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:8,fontSize:11,fontWeight:600}}>
+          <span style={{color:"var(--tx3)"}}>Allocated: <span className="mono">{usd(allocTotal)}</span></span>
+          <span style={{color:Math.abs(allocRemain)<0.01?"var(--gn)":"var(--am)"}}>Remaining: <span className="mono">{usd(allocRemain)}</span></span>
+        </div>
+        <div style={{marginTop:10}}>
+          <input value={multiSearch} onChange={e=>setMultiSearch(e.target.value)} placeholder="Search PO to add..." style={{width:"100%",padding:"6px 10px",border:"1px solid var(--bd)",borderRadius:4,fontSize:12}}/>
+          {multiMatches.length>0&&<div style={{marginTop:4,maxHeight:150,overflowY:"auto"}}>{multiMatches.filter(m=>!allocs.find(a=>a.orderId===m.id)).map(m=>{
+            const unpaidLines=[];
+            if(m.depUSD>0&&m.depStatus!=="paid")unpaidLines.push({type:"Deposit",amt:m.depUSD});
+            if(m.relUSD>0&&m.relStatus!=="paid")unpaidLines.push({type:"Release",amt:m.relUSD});
+            return <div key={m.id} className="mr-row" style={{padding:"6px 10px",marginBottom:2}} onClick={()=>{const bestLine=unpaidLines[0];addAlloc({...m,lineType:bestLine?.type||""});setAllocAmt(m.id,bestLine?.amt||0);setMultiSearch("");}}>
+              <div className="mr-info"><div className="mr-ref" style={{fontSize:12}}>{m.ref}</div><div className="mr-det">{m.supplier} · <RegionBadge region={m.region}/>{unpaidLines.map(l=><span key={l.type} style={{marginLeft:6,color:"var(--am)",fontWeight:600}}>{l.type}: {usd(l.amt)}</span>)}</div></div>
+            </div>})}</div>}
+        </div>
+      </div>}
+
       <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)} placeholder="Optional"/></Row>
     </>}
 
@@ -292,7 +333,12 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);setEd(r);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
   const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
     if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",totalValue:+(d.total_value)||0,depositAmt:+(d.deposit_amount)||0,depositStatus:"due",releaseAmt:+(d.release_amount)||(+(d.total_value)-+(d.deposit_amount))||0,releaseStatus:"unpaid",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
-    else if(dt==="remittance"){const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};const ref=(d.po_references?.[0]||d.reference||"").trim();const existingPayment=fuzzyMatchPayment(d,payments);if(existingPayment&&!existingPayment.docName){const confirmMsg=`Found existing payment:\n• Date: ${existingPayment.date}\n• Amount: $${existingPayment.amount.toLocaleString()}\n• From: ${existingPayment.sourceEntity}\n\nAttach this remittance to the existing payment?`;if(confirm(confirmMsg)){await apiPatch(`/api/payments/${encodeURIComponent(existingPayment.id)}`,{docName:file?.name,notes:(existingPayment.notes||"")+(d.notes?"\n"+d.notes:"")});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);return;}}const ms=fuzzyMatchPO(ref,orders,payments),m=ms.length>0&&ms[0].score>=75?ms[0]:null;if(m){const payAmt=+(d.amount)||0;if(d.payment_type==="Full Amount"){const poTotal=m.totalUSD||0,pctDiff=Math.abs(payAmt-poTotal)/poTotal;if(pctDiff>0.05)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} total $${poTotal.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Change to Deposit/Release or manually allocate.`);}else if(d.payment_type==="Deposit"){const depAmt=toUSD(m.depositAmt,m.currency),pctDiff=Math.abs(payAmt-depAmt)/depAmt;if(depAmt>0&&pctDiff>0.1)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} deposit $${depAmt.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Check payment type or amount.`);}else if(d.payment_type==="Release"){const relAmt=toUSD(m.releaseAmt,m.currency),pctDiff=Math.abs(payAmt-relAmt)/relAmt;if(relAmt>0&&pctDiff>0.1)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} release $${relAmt.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Check payment type or amount.`);}}await apiPost("/api/payments",{orderIds:m?[m.id]:[],allocations:m?{[m.id]:+(d.amount)||0}:{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}
+    else if(dt==="remittance"){const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};const ref=(d.po_references?.[0]||d.reference||"").trim();const existingPayment=fuzzyMatchPayment(d,payments);if(existingPayment&&!existingPayment.docName){const confirmMsg=`Found existing payment:\n• Date: ${existingPayment.date}\n• Amount: $${existingPayment.amount.toLocaleString()}\n• From: ${existingPayment.sourceEntity}\n\nAttach this remittance to the existing payment?`;if(confirm(confirmMsg)){await apiPatch(`/api/payments/${encodeURIComponent(existingPayment.id)}`,{docName:file?.name,notes:(existingPayment.notes||"")+(d.notes?"\n"+d.notes:"")});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);return;}}
+      /* Split payment mode: multiple POs with allocations */
+      if(d._splitOrderIds&&d._splitOrderIds.length>0){await apiPost("/api/payments",{orderIds:d._splitOrderIds,allocations:d._splitAllocations||{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}
+      else{/* Single PO mode */
+      const ms=fuzzyMatchPO(ref,orders,payments),m=ms.length>0&&ms[0].score>=75?ms[0]:null;
+      await apiPost("/api/payments",{orderIds:m?[m.id]:[],allocations:m?{[m.id]:+(d.amount)||0}:{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}}
     else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
     if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
   }catch(e){setError("Save failed: "+e.message);setSt("review");}};

@@ -148,7 +148,7 @@ async function parseDoc(file) {
   const b64=await new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=()=>j(new Error("fail"));x.readAsDataURL(file);});
   const isPDF=file.type==="application/pdf";
   const block=isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/png",data:b64}};
-  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,system:AUTO_DETECT_PROMPT,messages:[{role:"user",content:[block,{type:"text",text:"Identify document type and extract data. Return ONLY JSON."}]}]})});
+  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,system:AUTO_DETECT_PROMPT,messages:[{role:"user",content:[block,{type:"text",text:"Identify document type and extract data. Return ONLY JSON."}]}]})});
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`API error: ${res.status} - ${err}`);

@@ -114,19 +114,33 @@ openssl rand -hex 32
 ```
 
 **2. Add the service key as a secret in two places:**
-- **Worker**: Cloudflare Dashboard → Workers & Pages → bureau → Settings → Variables → add `BUREAU_SERVICE_KEY`
-- **Pages**: Cloudflare Dashboard → Workers & Pages → bureau-a04 → Settings → Environment variables → add `BUREAU_SERVICE_KEY` (same value)
+- **Worker**: Cloudflare Dashboard → Workers & Pages → bureau → Settings → Variables and Secrets → add `BUREAU_SERVICE_KEY`
+- **Pages**: Cloudflare Dashboard → Workers & Pages → bureau-a04 → Settings → Variables and Secrets → add `BUREAU_SERVICE_KEY` (same value, set for **All environments** not just Production or Preview)
+- **IMPORTANT**: After adding/changing the secret on Pages, you must **redeploy** for it to take effect (Deployments → latest production deployment → ⋯ → Retry deployment)
+- **IMPORTANT**: Both values must match exactly — no trailing whitespace, newlines, or quotes
 
 **3. Set up Cloudflare Zero Trust + Google Workspace:**
-- Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) → Settings → Authentication → Add Google as IdP
-- In Google Cloud Console: create OAuth 2.0 Client ID, set redirect URI to `https://<your-team>.cloudflareaccess.com/cdn-cgi/access/callback`
+- Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) (under "Protect & Connect" in the Cloudflare sidebar)
+- Team domain: `withbureau.cloudflareaccess.com` (Free plan, up to 50 users)
+- Add Google as IdP: **Integrations** (left sidebar) → **Identity providers** → Add Google → enter App ID + Client Secret
+- In Google Cloud Console: create OAuth 2.0 Client ID, set redirect URI to `https://withbureau.cloudflareaccess.com/cdn-cgi/access/callback`
 - Copy Client ID + Client Secret into the Cloudflare Google IdP config
 
 **4. Create an Access Application:**
-- Zero Trust → Access → Applications → Add Application → Self-hosted
-- Application domain: `bureau-a04.pages.dev`
-- Policy: Allow → Include → Emails ending in `@yourcompany.com`
-- Session duration: 24h (or your preference)
+- Zero Trust → **Access controls** (left sidebar) → **Applications** → Add Application → Self-hosted
+- Add public hostname: `bureau-a04.pages.dev`
+- Policy: Allow → Include → Emails ending in `@withbureau.com`
+- Session duration: 1 month (or your preference)
+
+### Critical: Same-Origin API Routing
+
+The dashboard (`index.html`) must use same-origin API calls (`const API = ""` on line 84), NOT the direct Worker URL. API requests go:
+
+```
+Browser → /api/* (same-origin) → Pages Function proxy → adds X-Bureau-Service-Key → Worker
+```
+
+If `const API` is set to the Worker URL directly, requests bypass the Pages Function proxy, no service key is sent, and the Worker returns 401. This was the cause of a previous outage.
 
 ### Cloudflare Worker Secrets (updated)
 

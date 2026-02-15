@@ -81,7 +81,7 @@
 <script type="text/babel" data-type="module">
 const { useState, useRef, useMemo, useEffect, useCallback } = React;
 
-const API = "https://bureau.nik-d88.workers.dev";
+const API = "";  // Same-origin — Pages Function proxies /api/* to the Worker
 const ENTITIES = ["AU", "UK", "US", "CA"];
 const SUPPLIERS = ["Soundbox", "Hecor", "Dawon", "Sunon"];
 const CURRENCIES = ["USD", "RMB", "AUD", "CAD", "GBP", "EUR"];

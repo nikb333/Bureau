@@ -7,8 +7,14 @@ An operations dashboard for Bureau Booths managing purchase orders, payments, sp
 ## Architecture
 
 ```
+User
+    ↓ authenticates via
+Cloudflare Access (Google Workspace SSO)
+    ↓ serves
 index.html (Cloudflare Pages, auto-deploys from GitHub)
-    ↓ API calls
+    ↓ /api/* (same-origin)
+Pages Function proxy (functions/api/[[path]].js)
+    ↓ + X-Bureau-Service-Key header
 Cloudflare Worker (bureau.nik-d88.workers.dev)
     ↓ reads/writes
 Google Sheets ("Bureau Ops Data" — the database, flat & accessible)
@@ -63,6 +69,9 @@ Bureau/                          ← GitHub repo root
   ├── index.html                 ← THE dashboard (single file, React + Babel via CDN, ~1600 lines)
   ├── worker.js                  ← Cloudflare Worker API (auto-deploys from GitHub)
   ├── wrangler.toml              ← Worker config (name=bureau, account_id)
+  ├── functions/
+  │   └── api/
+  │       └── [[path]].js        ← Pages Function: proxies /api/* to Worker with service key
   ├── .github/workflows/
   │   └── deploy-worker.yml      ← GitHub Actions: auto-deploy Worker on push
   ├── bulk-mark-paid.js          ← One-off browser script: bulk mark orders as paid
@@ -87,6 +96,46 @@ The dashboard (index.html) auto-deploys via Cloudflare Pages connected to GitHub
 - Google Drive API v3 for document storage (per-PO folders inside supplier subfolders)
 - Claude Haiku 4.5 API for document parsing (called server-side from Worker via /api/parse)
 - GitHub Actions for Worker deployment
+
+## Authentication & Access Control
+
+The dashboard is protected by **Cloudflare Access** with Google Workspace SSO. Three layers of defence:
+
+1. **Cloudflare Access on Pages** — Users must authenticate via Google Workspace to load the dashboard. Only emails from the company domain are allowed.
+2. **Pages Function proxy** — API calls go to `/api/*` on the same Pages domain (same-origin), so they pass through Access automatically. The Function forwards to the Worker with a service key header.
+3. **Worker service key validation** — The Worker rejects any request without a valid `X-Bureau-Service-Key` header (except `/api/health`). This blocks direct access to `bureau.nik-d88.workers.dev`.
+4. **CORS lockdown** — The Worker only accepts cross-origin requests from `https://bureau-a04.pages.dev`.
+
+### Setup Steps (one-time, in Cloudflare Dashboard)
+
+**1. Generate a service key:**
+```
+openssl rand -hex 32
+```
+
+**2. Add the service key as a secret in two places:**
+- **Worker**: Cloudflare Dashboard → Workers & Pages → bureau → Settings → Variables → add `BUREAU_SERVICE_KEY`
+- **Pages**: Cloudflare Dashboard → Workers & Pages → bureau-a04 → Settings → Environment variables → add `BUREAU_SERVICE_KEY` (same value)
+
+**3. Set up Cloudflare Zero Trust + Google Workspace:**
+- Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) → Settings → Authentication → Add Google as IdP
+- In Google Cloud Console: create OAuth 2.0 Client ID, set redirect URI to `https://<your-team>.cloudflareaccess.com/cdn-cgi/access/callback`
+- Copy Client ID + Client Secret into the Cloudflare Google IdP config
+
+**4. Create an Access Application:**
+- Zero Trust → Access → Applications → Add Application → Self-hosted
+- Application domain: `bureau-a04.pages.dev`
+- Policy: Allow → Include → Emails ending in `@yourcompany.com`
+- Session duration: 24h (or your preference)
+
+### Cloudflare Worker Secrets (updated)
+
+| Secret | Description |
+|--------|-------------|
+| `GOOGLE_SERVICE_ACCOUNT` | Service account JSON key (full JSON blob) |
+| `SHEET_ID` | Google Sheet ID for "Bureau Ops Data" |
+| `ANTHROPIC_API_KEY` | Claude API key for document parsing |
+| `BUREAU_SERVICE_KEY` | Shared secret for Pages→Worker auth (also set in Pages env) |
 
 ## Core Business Logic
 
@@ -257,16 +306,6 @@ When `POST /api/payments` is called:
 - Worker API health check
 - Troubleshooting tips
 - Service account access info
-
-## Cloudflare Worker Secrets
-
-Set in Cloudflare Dashboard (Workers & Pages → bureau → Settings → Variables):
-
-| Secret | Description |
-|--------|-------------|
-| `GOOGLE_SERVICE_ACCOUNT` | Service account JSON key (full JSON blob) |
-| `SHEET_ID` | Google Sheet ID for "Bureau Ops Data" |
-| `ANTHROPIC_API_KEY` | Claude API key for document parsing |
 
 ## Google Cloud Setup
 

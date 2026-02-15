@@ -775,11 +775,17 @@ async function getToken(env) {
   return cachedToken;
 }
 
+const ALLOWED_ORIGINS = [
+  "https://bureau-a04.pages.dev",
+  "http://localhost:8788",  // wrangler pages dev
+];
+
 function corsHeaders(origin) {
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
-    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Origin": allowed,
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Bureau-Service-Key",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -804,6 +810,16 @@ export default {
 
     if (method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
+    }
+
+    // Service key validation — blocks direct access without the key
+    // The Pages Function proxy adds this header; Cloudflare Access protects the Pages domain
+    const serviceKey = env.BUREAU_SERVICE_KEY;
+    if (serviceKey && path !== "/api/health") {
+      const provided = request.headers.get("X-Bureau-Service-Key");
+      if (provided !== serviceKey) {
+        return err("Unauthorized — access Bureau via the dashboard", 401, origin);
+      }
     }
 
     const sheetId = env.SHEET_ID || "";

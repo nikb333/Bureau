@@ -101,7 +101,7 @@ async function importPrivateKey(pem) {
 //   A:ID  B:Region  C:Ref  D:Invoice  E:Supplier  F:Currency  G:TotalValue
 //   H:DepositAmt  I:DepositStatus  J:DepositDue  K:DepositPaid
 //   L:ReleaseAmt  M:ReleaseStatus  N:ReleaseDue  O:ReleasePaid
-//   P:Notes  Q:DriveFolderID  R:Created  S:Updated
+//   P:Notes  Q:DriveFolderID  R:Created  S:Updated  T:PODate
 //
 // Tab "Payments" — one row per payment:
 //   A:ID  B:BankAccount  C:SourceEntity  D:Amount  E:Currency
@@ -114,7 +114,7 @@ const ORDER_HEADERS = [
   "ID", "Region", "Ref", "Invoice", "Supplier", "Currency", "Total Value",
   "Deposit Amt", "Deposit Status", "Deposit Due", "Deposit Paid",
   "Release Amt", "Release Status", "Release Due", "Release Paid",
-  "Notes", "Drive Folder ID", "Created", "Updated"
+  "Notes", "Drive Folder ID", "Created", "Updated", "PO Date"
 ];
 
 const PAYMENT_HEADERS = [
@@ -153,7 +153,7 @@ async function ensureSheetStructure(token, sheetId) {
 // --- Orders CRUD ---
 
 async function getAllOrders(token, sheetId) {
-  const rows = await readRange(token, sheetId, "Orders", "A2:S5000");
+  const rows = await readRange(token, sheetId, "Orders", "A2:T5000");
   return rows.filter(r => r[0]).map(rowToOrder);
 }
 
@@ -165,13 +165,14 @@ async function addOrder(token, sheetId, order) {
     order.depositAmt || 0, order.depositStatus || "unpaid", order.depositDue || "", order.depositPaid || "",
     order.releaseAmt || 0, order.releaseStatus || "unpaid", order.releaseDue || "", order.releasePaid || "",
     order.notes || "", order.driveFolderId || "", order.created || now, now,
+    order.poDate || "",
   ];
   await appendRows(token, sheetId, "Orders", [row]);
   return rowToOrder(row);
 }
 
 async function updateOrder(token, sheetId, orderId, updates) {
-  const rows = await readRange(token, sheetId, "Orders", "A2:S5000");
+  const rows = await readRange(token, sheetId, "Orders", "A2:T5000");
   const idx = rows.findIndex(r => r[0] === orderId);
   if (idx === -1) throw new Error(`Order not found: ${orderId}`);
   const row = rows[idx];
@@ -193,10 +194,39 @@ async function updateOrder(token, sheetId, orderId, updates) {
   if (updates.releasePaid !== undefined) row[14] = updates.releasePaid;
   if (updates.notes !== undefined) row[15] = updates.notes;
   if (updates.driveFolderId !== undefined) row[16] = updates.driveFolderId;
+  if (updates.poDate !== undefined) row[19] = updates.poDate;
   row[18] = new Date().toISOString().slice(0, 19);
 
-  await writeRange(token, sheetId, "Orders", `A${sheetRow}:S${sheetRow}`, [row]);
+  await writeRange(token, sheetId, "Orders", `A${sheetRow}:T${sheetRow}`, [row]);
   return rowToOrder(row);
+}
+
+async function deleteOrder(token, sheetId, orderId) {
+  const rows = await readRange(token, sheetId, "Orders", "A2:T5000");
+  const idx = rows.findIndex(r => r[0] === orderId);
+  if (idx === -1) throw new Error(`Order not found: ${orderId}`);
+  const sheetRow = idx + 2;
+
+  // Use batchUpdate to delete the row
+  const meta = await gfetch(`${SHEETS_BASE}/${sheetId}?fields=sheets(properties(sheetId,title))`, token);
+  const metaData = await meta.json();
+  const ordersSheet = metaData.sheets.find(s => s.properties.title === "Orders");
+  if (!ordersSheet) throw new Error("Orders sheet not found");
+
+  const batchRes = await gfetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, token, "POST", {
+    requests: [{
+      deleteDimension: {
+        range: {
+          sheetId: ordersSheet.properties.sheetId,
+          dimension: "ROWS",
+          startIndex: sheetRow - 1,
+          endIndex: sheetRow
+        }
+      }
+    }]
+  });
+
+  return { success: true, deletedId: orderId };
 }
 
 function rowToOrder(row) {
@@ -209,6 +239,7 @@ function rowToOrder(row) {
     releaseDue: row[13] || "", releasePaid: row[14] || "",
     notes: row[15] || "", driveFolderId: row[16] || "",
     created: row[17] || "", updated: row[18] || "",
+    poDate: row[19] || "",
   };
 }
 
@@ -230,6 +261,34 @@ async function addPayment(token, sheetId, payment) {
   ];
   await appendRows(token, sheetId, "Payments", [row]);
   return rowToPayment(row);
+}
+
+async function deletePayment(token, sheetId, paymentId) {
+  const rows = await readRange(token, sheetId, "Payments", "A2:L5000");
+  const idx = rows.findIndex(r => r[0] === paymentId);
+  if (idx === -1) throw new Error(`Payment not found: ${paymentId}`);
+  const sheetRow = idx + 2;
+
+  // Use batchUpdate to delete the row
+  const meta = await gfetch(`${SHEETS_BASE}/${sheetId}?fields=sheets(properties(sheetId,title))`, token);
+  const metaData = await meta.json();
+  const paymentsSheet = metaData.sheets.find(s => s.properties.title === "Payments");
+  if (!paymentsSheet) throw new Error("Payments sheet not found");
+
+  const batchRes = await gfetch(`${SHEETS_BASE}/${sheetId}:batchUpdate`, token, "POST", {
+    requests: [{
+      deleteDimension: {
+        range: {
+          sheetId: paymentsSheet.properties.sheetId,
+          dimension: "ROWS",
+          startIndex: sheetRow - 1,
+          endIndex: sheetRow
+        }
+      }
+    }]
+  });
+
+  return { success: true, deletedId: paymentId };
 }
 
 function rowToPayment(row) {
@@ -809,6 +868,14 @@ export default {
         return json({ success: true, order: updated }, 200, origin);
       }
 
+      // DELETE /api/orders/:id
+      if (path.startsWith("/api/orders/") && method === "DELETE") {
+        const orderId = decodeURIComponent(path.replace("/api/orders/", ""));
+        const token = await getToken(env);
+        const result = await deleteOrder(token, sheetId, orderId);
+        return json(result, 200, origin);
+      }
+
       // GET /api/payments
       if (path === "/api/payments" && method === "GET") {
         const token = await getToken(env);
@@ -844,6 +911,14 @@ export default {
           }
         }
         return json({ success: true, payment: created }, 201, origin);
+      }
+
+      // DELETE /api/payments/:id
+      if (path.startsWith("/api/payments/") && method === "DELETE") {
+        const paymentId = decodeURIComponent(path.replace("/api/payments/", ""));
+        const token = await getToken(env);
+        const result = await deletePayment(token, sheetId, paymentId);
+        return json(result, 200, origin);
       }
 
       // GET /api/drive/folders
@@ -947,7 +1022,7 @@ export default {
 
         const systemPrompt = `You are analysing a document for Bureau Booths, a company that ships booth/furniture containers from Chinese suppliers (Soundbox, Hecor, Dawon, Sunon) to AU, UK, US, and CA.
 Determine the document type from: purchase_order, commercial_invoice, remittance, freight_invoice. Then extract data. Return ONLY JSON:
-If purchase_order: {"doc_type":"purchase_order","supplier":"","po_reference":"","invoice_number":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
+If purchase_order: {"doc_type":"purchase_order","supplier":"","po_reference":"","invoice_number":"","po_date":"YYYY-MM-DD","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","po_date":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
 If remittance: {"doc_type":"remittance","bank_account_hint":"AU-NAB|UK-HSBC|US-Chase|CA-RBC","source_entity":"AU|UK|US|CA","payment_date":"YYYY-MM-DD","amount":0,"currency":"USD","po_references":[""],"payment_type":"Deposit|Release|Full Amount","reference":"","notes":"","confidence":"high|medium|low","confidence_details":{"amount":"high|medium|low","payment_date":"high|medium|low","source_entity":"high|medium|low","po_references":"high|medium|low"}}
 If commercial_invoice: {"doc_type":"commercial_invoice","supplier":"","invoice_number":"","invoice_date":"","po_reference":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
 If freight_invoice: {"doc_type":"freight_invoice","invoice_number":"","tracking_number":"","total_amount":0,"currency":"AUD","destination_region":"AU|UK|US|CA","po_reference":"","origin":"","destination":"","notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}

@@ -1,3 +1,4 @@
 name = "bureau"
 main = "worker.js"
 compatibility_date = "2024-01-01"
+account_id = "d8863dfbec593b93b1dfc824b45cc4b7"

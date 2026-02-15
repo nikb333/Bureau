@@ -994,6 +994,18 @@ export default {
             let folder = await driveFindFolder(token, poRef);
             if (!folder) folder = await driveCreateFolder(token, poRef, "");
             targetFolderId = folder.id;
+
+            // Update order with folder ID if missing
+            try {
+              const poKey = poRef.match(/PO[\s\-_]*(\d+)/i) ? `PO-${poRef.match(/PO[\s\-_]*(\d+)/i)[1]}` : poRef.trim().replace(/\s+/g, "-");
+              const orders = await getAllOrders(token, sheetId);
+              const order = orders.find(o => o.id === poKey || o.ref === poRef);
+              if (order && !order.driveFolderId) {
+                await updateOrder(token, sheetId, order.id, { driveFolderId: targetFolderId });
+              }
+            } catch (e) {
+              console.error("Failed to update order driveFolderId:", e.message);
+            }
           }
           if (!targetFolderId) return err("Missing folderId or poRef", 400, origin);
 
@@ -1015,6 +1027,18 @@ export default {
           let folder = await driveFindFolder(token, body.poRef);
           if (!folder) folder = await driveCreateFolder(token, body.poRef, "");
           targetFolderId = folder.id;
+
+          // Update order with folder ID if missing
+          try {
+            const poKey = body.poRef.match(/PO[\s\-_]*(\d+)/i) ? `PO-${body.poRef.match(/PO[\s\-_]*(\d+)/i)[1]}` : body.poRef.trim().replace(/\s+/g, "-");
+            const orders = await getAllOrders(token, sheetId);
+            const order = orders.find(o => o.id === poKey || o.ref === body.poRef);
+            if (order && !order.driveFolderId) {
+              await updateOrder(token, sheetId, order.id, { driveFolderId: targetFolderId });
+            }
+          } catch (e) {
+            console.error("Failed to update order driveFolderId:", e.message);
+          }
         }
         const binary = atob(body.data);
         const bytes = new Uint8Array(binary.length);

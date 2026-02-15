@@ -56,17 +56,33 @@ async function bulkMarkPaid() {
     const updates = {};
     let hasUpdates = false;
 
+    // Determine realistic paid date based on order data
+    // Priority: 1) depositDue/releaseDue, 2) poDate, 3) created date, 4) fall back to 2024
+    const getHistoricalDate = (dueDate, poDate, created) => {
+      if (dueDate) return dueDate;
+      if (poDate) {
+        // Add ~60 days to PO date for deposit, ~120 days for release
+        const d = new Date(poDate);
+        return d.toISOString().slice(0, 10);
+      }
+      if (created) {
+        const d = new Date(created);
+        return d.toISOString().slice(0, 10);
+      }
+      return "2024-06-01"; // Default to mid-2024 for very old legacy items
+    };
+
     // Mark deposit as paid if not in skip list and currently unpaid
     if (!shouldSkipDeposit && !shouldSkipFullAmount && order.depositStatus !== "paid" && order.depositAmt > 0) {
       updates.depositStatus = "paid";
-      updates.depositPaid = order.depositDue || "2026-01-20";
+      updates.depositPaid = getHistoricalDate(order.depositDue, order.poDate, order.created);
       hasUpdates = true;
     }
 
     // Mark release as paid if not in skip list and currently unpaid
     if (!shouldSkipRelease && !shouldSkipFullAmount && order.releaseStatus !== "paid" && order.releaseAmt > 0) {
       updates.releaseStatus = "paid";
-      updates.releasePaid = order.releaseDue || "2026-01-20";
+      updates.releasePaid = getHistoricalDate(order.releaseDue, order.poDate, order.created);
       hasUpdates = true;
     }
 

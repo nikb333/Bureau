@@ -105,7 +105,6 @@ const TABS = [
   { id: "payments", label: "Payments", icon: "💳" },
   { id: "clearing", label: "Intercompany", icon: "🔄" },
   { id: "forecast", label: "Cash Forecast", icon: "📊" },
-  { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 const usd = v => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -115,14 +114,6 @@ const pct = v => (v * 100).toFixed(1) + "%";
 const getWeekStart = d => { const dt = new Date(d); const day = dt.getDay(); const diff = dt.getDate() - day + (day === 0 ? -6 : 1); dt.setDate(diff); dt.setHours(0,0,0,0); return dt; };
 const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDate(e.getDate() + 6); return `${s.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`; };
 const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
-
-const AUTO_DETECT_PROMPT = `You are analysing a document for Bureau Booths, a company that ships booth/furniture containers from Chinese suppliers (Soundbox, Hecor, Dawon, Sunon) to AU, UK, US, and CA.
-Determine the document type from: purchase_order, commercial_invoice, remittance, freight_invoice. Then extract data. Return ONLY JSON:
-If purchase_order: {"doc_type":"purchase_order","supplier":"","po_reference":"","invoice_number":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
-If remittance: {"doc_type":"remittance","bank_account_hint":"AU-NAB|UK-HSBC|US-Chase|CA-RBC","source_entity":"AU|UK|US|CA","payment_date":"YYYY-MM-DD","amount":0,"currency":"USD","po_references":[""],"payment_type":"Deposit|Release|Full Amount","reference":"","notes":"","confidence":"high|medium|low","confidence_details":{"amount":"high|medium|low","payment_date":"high|medium|low","source_entity":"high|medium|low","po_references":"high|medium|low"}}
-If commercial_invoice: {"doc_type":"commercial_invoice","supplier":"","invoice_number":"","invoice_date":"","po_reference":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
-If freight_invoice: {"doc_type":"freight_invoice","invoice_number":"","tracking_number":"","total_amount":0,"currency":"AUD","destination_region":"AU|UK|US|CA","po_reference":"","origin":"","destination":"","notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
-Hints: GB prefix=UK, US=US, CA=CA, AU/E=AU. Invoice prefixes: GB=UK Soundbox, HA=Hecor, BUR=Dawon.`;
 
 // API helpers
 async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
@@ -139,21 +130,16 @@ function fuzzyMatchPO(input, orders, payments) {
   return orders.map(o=>{let score=0,reason="";const rc=clean(o.ref),ic=clean(o.inv);if(rc===q||ic===q){score=100;reason="Exact";}else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}const tot=toUSD(o.totalValue,o.currency),pd=paidMap[o.id]||0,out=tot-pd,bal=out>0.01;if(score>0&&bal)score+=5;return{...o,score,reason,outstanding:out,paid:pd,totalUSD:tot,hasBalance:bal};}).filter(o=>o.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
 }
 
-// Doc parser
+// Doc parser — calls Worker /api/parse (server-side Anthropic call)
 async function parseDoc(file) {
-  const apiKey = localStorage.getItem('anthropic_api_key');
-  if (!apiKey) {
-    throw new Error('API key not configured. Please add your Anthropic API key in Settings.');
-  }
   const b64=await new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=()=>j(new Error("fail"));x.readAsDataURL(file);});
-  const isPDF=file.type==="application/pdf";
-  const block=isPDF?{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}}:{type:"image",source:{type:"base64",media_type:file.type||"image/png",data:b64}};
-  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1200,system:AUTO_DETECT_PROMPT,messages:[{role:"user",content:[block,{type:"text",text:"Identify document type and extract data. Return ONLY JSON."}]}]})});
+  const mediaType=file.type||"application/pdf";
+  const res=await fetch(API+"/api/parse",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64,media_type:mediaType})});
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`API error: ${res.status} - ${err}`);
+    const errText = await res.text();
+    throw new Error(`Parse error (${res.status}): ${errText}`);
   }
-  const data=await res.json(); return JSON.parse((data.content||[]).map(c=>c.text||"").join("").replace(/```json|```/g,"").trim());
+  return res.json();
 }
 
 // Small UI components
@@ -320,49 +306,6 @@ function ForecastTab({orders}){
   </>;
 }
 
-function SettingsTab() {
-  const [apiKey, setApiKey] = useState(localStorage.getItem('anthropic_api_key') || '');
-  const [saved, setSaved] = useState(false);
-
-  const saveApiKey = () => {
-    localStorage.setItem('anthropic_api_key', apiKey);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  return <>
-    <div className="ph">
-      <div><h2>Settings</h2><p className="ps">Configure API keys and preferences</p></div>
-    </div>
-    <div style={{maxWidth: 600, padding: '0 24px'}}>
-      <div style={{marginBottom: 24}}>
-        <h3 style={{fontSize: 16, marginBottom: 8}}>Anthropic API Key</h3>
-        <p style={{fontSize: 13, color: '#666', marginBottom: 12}}>
-          Required for PDF document parsing. Get your API key from <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>
-        </p>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-ant-..."
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            border: '1px solid #ddd',
-            borderRadius: 6,
-            fontSize: 13,
-            fontFamily: 'monospace',
-            marginBottom: 12
-          }}
-        />
-        <button onClick={saveApiKey} className="btn btn-primary">
-          {saved ? '✓ Saved' : 'Save API Key'}
-        </button>
-      </div>
-    </div>
-  </>;
-}
-
 // App
 function App(){
   const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);
@@ -382,7 +325,6 @@ function App(){
       {tab==="payments"&&<PaymentsTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="clearing"&&<IntercompanyTab orders={orders} payments={payments}/>}
       {tab==="forecast"&&<ForecastTab orders={orders}/>}
-      {tab==="settings"&&<SettingsTab/>}
     </main></div>;
 }
 

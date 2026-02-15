@@ -122,6 +122,44 @@ async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PA
 async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error("API "+r.status+": "+(await r.text())); return r.json(); }
 async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error("Upload failed"); return r.json(); }
 
+// Fuzzy match existing payment for remittance upload
+function fuzzyMatchPayment(remittanceData, payments) {
+  const amt = +(remittanceData.amount) || 0;
+  const date = remittanceData.payment_date;
+  const source = remittanceData.source_entity;
+  if (!amt || !date || !source) return null;
+
+  const dateObj = new Date(date);
+  const matches = payments.filter(p => {
+    // Match source entity
+    if (p.sourceEntity !== source) return false;
+
+    // Match amount (±5% tolerance)
+    const pAmt = toUSD(p.amount, p.currency);
+    const amtDiff = Math.abs(amt - pAmt) / pAmt;
+    if (amtDiff > 0.05) return false;
+
+    // Match date (±7 days tolerance)
+    if (p.date) {
+      const pDate = new Date(p.date);
+      const daysDiff = Math.abs((dateObj - pDate) / (1000 * 60 * 60 * 24));
+      if (daysDiff > 7) return false;
+    }
+
+    // Prefer payments without documents (docName not set)
+    return true;
+  });
+
+  // Sort by closeness: first by amount difference, then by date difference
+  matches.sort((a, b) => {
+    const aDiff = Math.abs(amt - toUSD(a.amount, a.currency));
+    const bDiff = Math.abs(amt - toUSD(b.amount, b.currency));
+    return aDiff - bDiff;
+  });
+
+  return matches.length > 0 ? matches[0] : null;
+}
+
 // Fuzzy match
 function fuzzyMatchPO(input, orders, payments) {
   if (!input||!input.trim()) return [];
@@ -220,7 +258,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);setEd(r);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
   const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
     if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",totalValue:+(d.total_value)||0,depositAmt:+(d.deposit_amount)||0,depositStatus:"due",releaseAmt:+(d.release_amount)||(+(d.total_value)-+(d.deposit_amount))||0,releaseStatus:"unpaid",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
-    else if(dt==="remittance"){const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};const ref=(d.po_references?.[0]||d.reference||"").trim();const ms=fuzzyMatchPO(ref,orders,payments),m=ms.length>0&&ms[0].score>=75?ms[0]:null;if(m){const payAmt=+(d.amount)||0;if(d.payment_type==="Full Amount"){const poTotal=m.totalUSD||0,pctDiff=Math.abs(payAmt-poTotal)/poTotal;if(pctDiff>0.05)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} total $${poTotal.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Change to Deposit/Release or manually allocate.`);}else if(d.payment_type==="Deposit"){const depAmt=toUSD(m.depositAmt,m.currency),pctDiff=Math.abs(payAmt-depAmt)/depAmt;if(depAmt>0&&pctDiff>0.1)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} deposit $${depAmt.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Check payment type or amount.`);}else if(d.payment_type==="Release"){const relAmt=toUSD(m.releaseAmt,m.currency),pctDiff=Math.abs(payAmt-relAmt)/relAmt;if(relAmt>0&&pctDiff>0.1)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} release $${relAmt.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Check payment type or amount.`);}}await apiPost("/api/payments",{orderIds:m?[m.id]:[],allocations:m?{[m.id]:+(d.amount)||0}:{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}
+    else if(dt==="remittance"){const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};const ref=(d.po_references?.[0]||d.reference||"").trim();const existingPayment=fuzzyMatchPayment(d,payments);if(existingPayment&&!existingPayment.docName){const confirmMsg=`Found existing payment:\n• Date: ${existingPayment.date}\n• Amount: $${existingPayment.amount.toLocaleString()}\n• From: ${existingPayment.sourceEntity}\n\nAttach this remittance to the existing payment?`;if(confirm(confirmMsg)){await apiPatch(`/api/payments/${encodeURIComponent(existingPayment.id)}`,{docName:file?.name,notes:(existingPayment.notes||"")+(d.notes?"\n"+d.notes:"")});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);return;}}const ms=fuzzyMatchPO(ref,orders,payments),m=ms.length>0&&ms[0].score>=75?ms[0]:null;if(m){const payAmt=+(d.amount)||0;if(d.payment_type==="Full Amount"){const poTotal=m.totalUSD||0,pctDiff=Math.abs(payAmt-poTotal)/poTotal;if(pctDiff>0.05)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} total $${poTotal.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Change to Deposit/Release or manually allocate.`);}else if(d.payment_type==="Deposit"){const depAmt=toUSD(m.depositAmt,m.currency),pctDiff=Math.abs(payAmt-depAmt)/depAmt;if(depAmt>0&&pctDiff>0.1)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} deposit $${depAmt.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Check payment type or amount.`);}else if(d.payment_type==="Release"){const relAmt=toUSD(m.releaseAmt,m.currency),pctDiff=Math.abs(payAmt-relAmt)/relAmt;if(relAmt>0&&pctDiff>0.1)throw new Error(`Payment $${payAmt.toLocaleString()} ≠ PO ${m.ref} release $${relAmt.toLocaleString()} (${(pctDiff*100).toFixed(0)}% diff). Check payment type or amount.`);}}await apiPost("/api/payments",{orderIds:m?[m.id]:[],allocations:m?{[m.id]:+(d.amount)||0}:{},bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:d.payment_type||"Deposit",notes:d.notes||"",docName:file?.name});if(file&&ref)try{await apiUploadFile(file,ref);}catch(e){}}
     else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
     if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
   }catch(e){setError("Save failed: "+e.message);setSt("review");}};

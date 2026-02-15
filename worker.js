@@ -263,6 +263,28 @@ async function addPayment(token, sheetId, payment) {
   return rowToPayment(row);
 }
 
+async function updatePayment(token, sheetId, paymentId, updates) {
+  const rows = await readRange(token, sheetId, "Payments", "A2:L5000");
+  const idx = rows.findIndex(r => r[0] === paymentId);
+  if (idx === -1) throw new Error(`Payment not found: ${paymentId}`);
+  const row = rows[idx];
+  const sheetRow = idx + 2;
+
+  if (updates.bankAccount !== undefined) row[1] = updates.bankAccount;
+  if (updates.sourceEntity !== undefined) row[2] = updates.sourceEntity;
+  if (updates.amount !== undefined) row[3] = updates.amount;
+  if (updates.currency !== undefined) row[4] = updates.currency;
+  if (updates.date !== undefined) row[5] = updates.date;
+  if (updates.type !== undefined) row[6] = updates.type;
+  if (updates.orderIds !== undefined) row[7] = updates.orderIds.join(",");
+  if (updates.allocations !== undefined) row[8] = JSON.stringify(updates.allocations);
+  if (updates.notes !== undefined) row[9] = updates.notes;
+  if (updates.docName !== undefined) row[10] = updates.docName;
+
+  await writeRange(token, sheetId, "Payments", `A${sheetRow}:L${sheetRow}`, [row]);
+  return rowToPayment(row);
+}
+
 async function deletePayment(token, sheetId, paymentId) {
   const rows = await readRange(token, sheetId, "Payments", "A2:L5000");
   const idx = rows.findIndex(r => r[0] === paymentId);
@@ -911,6 +933,15 @@ export default {
           }
         }
         return json({ success: true, payment: created }, 201, origin);
+      }
+
+      // PATCH /api/payments/:id
+      if (path.startsWith("/api/payments/") && method === "PATCH") {
+        const paymentId = decodeURIComponent(path.replace("/api/payments/", ""));
+        const token = await getToken(env);
+        const body = await request.json();
+        const updated = await updatePayment(token, sheetId, paymentId, body);
+        return json({ success: true, payment: updated }, 200, origin);
       }
 
       // DELETE /api/payments/:id

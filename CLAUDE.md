@@ -36,6 +36,9 @@ Claude Haiku 4.5 (document parsing via /api/parse)
 - **Worker API**: `https://bureau.nik-d88.workers.dev`
 - **GitHub repo**: `https://github.com/nikb333/Bureau` (private)
 
+> **WARNING — Do NOT confuse with the other project:**
+> `https://bureau-ops-fresh.pages.dev` and `https://bureau-ops.nik-d88.workers.dev` belong to a completely separate concurrent project. Never reference or use those URLs in this codebase.
+
 ### Google Sheet Structure (Worker-owned, 2 tabs)
 
 **Orders tab** — one row per PO (columns A:T):

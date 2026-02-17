@@ -14,7 +14,7 @@
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;-webkit-font-smoothing:antialiased}
 .app{display:flex;height:100vh;overflow:hidden}
 .sidebar{width:210px;background:var(--wh);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}.sidebar-logo{padding:20px 16px 16px;border-bottom:1px solid var(--bd)}.sidebar-logo h1{font-size:16px;font-weight:700;letter-spacing:-.02em}.sidebar-logo span{font-size:11px;color:var(--tx3);display:block;margin-top:2px}.sidebar-nav{padding:12px 8px;flex:1}
-.ni{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--tx2);transition:all .15s;border:none;background:none;width:100%;text-align:left;margin-bottom:2px}.ni:hover{background:var(--s2);color:var(--tx)}.ni.act{background:var(--ac);color:#fff}.ni .nic{font-size:16px;width:20px;text-align:center}
+.ni{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:500;color:var(--tx2);transition:all .15s;border:none;background:none;width:100%;text-align:left;margin-bottom:2px}.ni:hover{background:var(--s2);color:var(--tx)}.ni.act{background:var(--ac);color:#fff}.ni.act-primary{background:linear-gradient(135deg,#dc2626,#b91c1c);color:#fff;box-shadow:0 2px 8px rgba(220,38,38,.3)}.ni .nic{font-size:16px;width:20px;text-align:center}
 .sf{padding:12px 16px;border-top:1px solid var(--bd);font-size:11px;color:var(--tx3)}
 .mn{flex:1;overflow-y:auto;padding:28px 32px}
 .ph{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}.ph h2{font-size:22px;font-weight:700;letter-spacing:-.02em}.ps{font-size:13px;color:var(--tx3);margin-top:2px}
@@ -74,6 +74,36 @@
 .loading-screen{display:flex;align-items:center;justify-content:center;height:100vh;gap:16px;flex-direction:column}
 .loading-screen .spinner{width:32px;height:32px;border-width:3px}
 @media(max-width:900px){.sidebar{width:56px}.sidebar-logo h1,.sidebar-logo span,.ni span:not(.nic){display:none}.ni{justify-content:center;padding:12px}.mn{padding:16px}.sg{grid-template-columns:1fr 1fr}.rr{flex-direction:column;align-items:flex-start;gap:4px;padding:10px 16px}.rr-s{width:auto}.rr-l{width:auto}.rr-i{width:100%}.filter-bar{flex-direction:column;gap:8px}.filter-search{width:100%}.wk-header{flex-direction:column;align-items:flex-start;gap:4px}.sidebar-upload-btn span:last-child{display:none}.sidebar-upload-btn{justify-content:center;padding:10px}}
+/* Outstanding Dashboard */
+.out-hero{background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:14px;padding:28px 32px;margin-bottom:24px;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.15)}
+.out-hero h2{font-size:28px;font-weight:800;letter-spacing:-.03em;color:#fff;margin-bottom:4px}
+.out-hero .out-sub{color:rgba(255,255,255,.5);font-size:13px}
+.out-hero-top{display:flex;justify-content:space-between;align-items:flex-start}
+.out-btn{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(4px)}.out-btn:hover{background:rgba(255,255,255,.2)}
+.out-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.out-card{border-radius:12px;padding:20px 22px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.out-card-outstanding{background:linear-gradient(135deg,#fef2f2,#fee2e2);border:2px solid #fca5a5}
+.out-card-overdue{background:linear-gradient(135deg,#fef2f2,#fecaca);border:2px solid #f87171}
+.out-card-due{background:linear-gradient(135deg,#fffbeb,#fef3c7);border:2px solid #fcd34d}
+.out-card-items{background:linear-gradient(135deg,#eff6ff,#dbeafe);border:2px solid #93c5fd}
+.out-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:8px}
+.out-val{font-size:28px;font-weight:800;letter-spacing:-.03em}
+.out-sub-card{font-size:12px;margin-top:4px;font-weight:500}
+.out-card-outstanding .out-label,.out-card-outstanding .out-sub-card{color:#b91c1c}.out-card-outstanding .out-val{color:#991b1b}
+.out-card-overdue .out-label,.out-card-overdue .out-sub-card{color:#dc2626}.out-card-overdue .out-val{color:#b91c1c}
+.out-card-due .out-label,.out-card-due .out-sub-card{color:#92400e}.out-card-due .out-val{color:#78350f}
+.out-card-items .out-label,.out-card-items .out-sub-card{color:#1d4ed8}.out-card-items .out-val{color:#1e40af}
+.overdue-banner{display:flex;align-items:center;gap:16px;padding:16px 22px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border:2px solid #f87171;border-radius:12px;margin-bottom:20px;animation:pulse-border 2s ease-in-out infinite}
+@keyframes pulse-border{0%,100%{border-color:#f87171}50%{border-color:#ef4444}}
+.overdue-banner-icon{font-size:32px;flex-shrink:0}
+.overdue-banner-text{font-size:15px;font-weight:700;color:#991b1b}
+.overdue-banner-sub{font-size:12px;color:#b91c1c;margin-top:2px}
+.out-progress{margin-bottom:24px;background:var(--wh);border:1px solid var(--bd);border-radius:12px;padding:16px 20px;box-shadow:var(--sh)}
+.out-progress-bar{height:14px;border-radius:7px;background:#e5e7eb;overflow:hidden;display:flex}
+.out-progress-fill{height:100%;transition:width .5s ease}
+.out-pg{background:linear-gradient(90deg,#059669,#10b981)}.out-pr{background:linear-gradient(90deg,#dc2626,#ef4444)}.out-pa{background:linear-gradient(90deg,#d97706,#f59e0b)}
+.out-progress-legend{display:flex;gap:20px;margin-top:10px;font-size:12px;color:var(--tx2);font-weight:500}
+@media(max-width:900px){.out-cards{grid-template-columns:1fr 1fr}.out-hero{padding:20px}}
 </style>
 </head>
 <body>
@@ -312,20 +342,34 @@ function ordersToLineItems(orders){
 // Tabs
 function OrdersTab({orders,payments,onRefresh,showOnlyUnpaid}){
   const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fSt,setFSt]=useState(showOnlyUnpaid?"unpaid":"all");const[fAge,setFAge]=useState("6M");
-  const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);
+  const[sort,setSort]=useState(showOnlyUnpaid?{key:"due",dir:"asc"}:{key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);
   const[editOrder,setEditOrder]=useState(null);
   const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
   const allItems=ordersToLineItems(orders);
-  const fl=allItems.filter(item=>{if(showOnlyUnpaid&&item.lineStatus==="paid")return false;if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(fSt==="paid"&&item.lineStatus!=="paid")return false;if(fSt==="unpaid"&&item.lineStatus==="paid")return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
-  const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
+  const fl=allItems.filter(item=>{if(showOnlyUnpaid&&item.lineStatus==="paid")return false;if(showOnlyUnpaid&&toUSD(item.lineAmount,item.currency)<0.01)return false;if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.lineDue||item.linePaid||item.poDate||item.created;if(!dateToCheck)return false;const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(fSt==="paid"&&item.lineStatus!=="paid")return false;if(fSt==="unpaid"&&item.lineStatus==="paid")return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
+  const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount"||sort.key==="usd")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paid")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
   const tv=fl.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
   const tp=fl.filter(i=>i.lineStatus==="paid").reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
+  const overdueItems=fl.filter(i=>i.lineStatus!=="paid"&&i.lineDue&&new Date(i.lineDue)<new Date());
+  const overdueAmt=overdueItems.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
+  const now30=new Date();now30.setDate(now30.getDate()+30);
+  const dueSoonItems=fl.filter(i=>i.lineStatus!=="paid"&&i.lineDue&&new Date(i.lineDue)>=new Date()&&new Date(i.lineDue)<=now30);
+  const dueSoonAmt=dueSoonItems.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
+  const outAmt=tv-tp;const paidPct=tv>0?(tp/tv*100):0;const overduePct=tv>0?(overdueAmt/tv*100):0;const duePct=tv>0?(dueSoonAmt/tv*100):0;
   return <>
-    <div className="ph"><div><h2>{showOnlyUnpaid?"Outstanding Purchase Orders":"All Purchase Orders"}</h2><p className="ps">{fl.length} of {allItems.length} line items{showOnlyUnpaid?" (unpaid only)":""}</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
-    {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
-    <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
+    {showOnlyUnpaid?<>
+      <div className="out-hero"><div className="out-hero-top"><div><h2>Outstanding Purchase Orders</h2><p className="out-sub">{fl.length} active line items · {usd(outAmt)} outstanding</p></div><button className="btn out-btn" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div></div>
+      {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
+      {overdueItems.length>0&&<div className="overdue-banner"><div className="overdue-banner-icon">🚨</div><div><div className="overdue-banner-text">{overdueItems.length} overdue payment{overdueItems.length>1?"s":""} totalling {usd(overdueAmt)}</div><div className="overdue-banner-sub">Past due date — requires immediate attention</div></div></div>}
+      <div className="out-cards"><div className="out-card out-card-outstanding"><div className="out-label">Total Outstanding</div><div className="out-val mono">{usd(outAmt)}</div><div className="out-sub-card">{fl.length} line items</div></div><div className="out-card out-card-overdue"><div className="out-label">Overdue</div><div className="out-val mono">{usd(overdueAmt)}</div><div className="out-sub-card">{overdueItems.length} item{overdueItems.length!==1?"s":""}</div></div><div className="out-card out-card-due"><div className="out-label">Due Next 30 Days</div><div className="out-val mono">{usd(dueSoonAmt)}</div><div className="out-sub-card">{dueSoonItems.length} item{dueSoonItems.length!==1?"s":""}</div></div><div className="out-card out-card-items"><div className="out-label">Total PO Value</div><div className="out-val mono">{usd(tv)}</div><div className="out-sub-card">{usd(tp)} paid ({paidPct.toFixed(0)}%)</div></div></div>
+      <div className="out-progress"><div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:12,fontWeight:600,color:"var(--tx2)"}}>Payment Progress</span><span style={{fontSize:12,fontWeight:700,color:"var(--gn)"}}>{paidPct.toFixed(1)}% paid</span></div><div className="out-progress-bar"><div className="out-progress-fill out-pg" style={{width:paidPct+"%"}}/><div className="out-progress-fill out-pr" style={{width:overduePct+"%"}}/><div className="out-progress-fill out-pa" style={{width:duePct+"%"}}/></div><div className="out-progress-legend"><span><span className="dot dg"/>Paid: {usd(tp)}</span>{overdueAmt>0&&<span><span className="dot dr"/>Overdue: {usd(overdueAmt)}</span>}{dueSoonAmt>0&&<span><span className="dot da"/>Due soon: {usd(dueSoonAmt)}</span>}<span style={{marginLeft:"auto"}}><span className="dot" style={{background:"#9ca3af"}}/>Remaining: {usd(Math.max(0,outAmt-overdueAmt-dueSoonAmt))}</span></div></div>
+    </>:<>
+      <div className="ph"><div><h2>All Purchase Orders</h2><p className="ps">{fl.length} of {allItems.length} line items</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
+      {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
+      <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
+    </>}
     <div className="filter-bar">
       <input placeholder="Search PO, invoice..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
       <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["1M","3M","6M","1Y"]} value={fAge} onChange={setFAge} allLabel="All"/></div>
@@ -333,8 +377,8 @@ function OrdersTab({orders,payments,onRefresh,showOnlyUnpaid}){
       <div className="filter-section"><span className="filter-label">Supplier</span><BtnGroup options={SUPPLIERS} value={fS} onChange={setFS} allLabel="All"/></div>
       {!showOnlyUnpaid&&<div className="filter-section"><span className="filter-label">Status</span><BtnGroup options={["paid","unpaid"]} value={fSt} onChange={setFSt} allLabel="All"/></div>}
     </div>
-    <div className="tw"><div className="tsc"><table><thead><tr><th></th><th>Region</th><th className="srt" onClick={()=>ts("ref")}>PO Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier{si("supplier")}</th><th>Type</th><th>Currency</th><th className="srt" onClick={()=>ts("amount")}>Amount{si("amount")}</th><th>USD Equiv</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th>Paid Date</th><th>Drive</th><th>Actions</th></tr></thead>
-    <tbody>{sorted.map(item=>{const pmts=payments.filter(p=>(p.orderIds||[]).includes(item.id));const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td style={{textAlign:"center"}}>{isPaid?"✓":isOverdue?"🔴":"⚪"}</td><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td>{item.supplier}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono">{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td>
+    <div className="tw"><div className="tsc"><table><thead><tr><th></th><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>PO Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier{si("supplier")}</th><th className="srt" onClick={()=>ts("type")}>Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Amount{si("amount")}</th><th className="srt" onClick={()=>ts("usd")}>USD Equiv{si("usd")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paid")}>Paid Date{si("paid")}</th><th>Drive</th><th>Actions</th></tr></thead>
+    <tbody>{sorted.map(item=>{const pmts=payments.filter(p=>(p.orderIds||[]).includes(item.id));const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td style={{textAlign:"center"}}>{isPaid?"✓":isOverdue?"🔴":"⚪"}</td><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td>{item.supplier}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono" style={showOnlyUnpaid?{background:"#fffbeb",fontWeight:700}:{}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td>
       <td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}
     {!sorted.length&&<tr><td colSpan={13} className="ec">No line items match</td></tr>}</tbody></table></div></div>
     {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{setEditOrder(null);await onRefresh();}} onClose={()=>setEditOrder(null)}/>}
@@ -411,7 +455,7 @@ function App(){
   </div>}<button className="btn btn-primary" onClick={loadData}>Retry</button></div>;
   return <div className="app">
     <div className="sidebar"><div className="sidebar-logo"><h1>Bureau Ops</h1><span>Logistics & Payments</span></div>
-    <nav className="sidebar-nav">{TABS.map(t=><button key={t.id} className={`ni ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}><span className="nic">{t.icon}</span><span>{t.label}</span></button>)}</nav>
+    <nav className="sidebar-nav">{TABS.map(t=><button key={t.id} className={`ni ${tab===t.id?(t.id==="outstanding"?"act act-primary":"act"):""}`} onClick={()=>setTab(t.id)}><span className="nic">{t.icon}</span><span>{t.label}</span></button>)}</nav>
     <div className="sidebar-upload"><button className="sidebar-upload-btn" onClick={()=>setSideUpload(!sideUpload)}><span style={{fontSize:18}}>⬆</span><span>Upload Doc</span></button></div>
     <div className="sf"><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{orders.length} POs · {payments.length} payments</span><button onClick={()=>setShowHelp(true)} style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:14,cursor:"pointer",fontWeight:700}} title="Backend guide & troubleshooting">?</button></div>{lastRefresh&&<div style={{marginTop:4,cursor:"pointer"}} onClick={refresh} title="Click to refresh">🔄 {lastRefresh.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>}</div></div>
     <main className="mn">

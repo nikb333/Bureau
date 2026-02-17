@@ -814,9 +814,9 @@ export default {
 
     // Service key validation — blocks direct access without the key
     // The Pages Function proxy adds this header; Cloudflare Access protects the Pages domain
-    const serviceKey = env.BUREAU_SERVICE_KEY;
+    const serviceKey = (env.BUREAU_SERVICE_KEY || "").trim();
     if (serviceKey && path !== "/api/health") {
-      const provided = request.headers.get("X-Bureau-Service-Key");
+      const provided = (request.headers.get("X-Bureau-Service-Key") || "").trim();
       if (provided !== serviceKey) {
         return err("Unauthorized — access Bureau via the dashboard", 401, origin);
       }

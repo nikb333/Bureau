@@ -402,7 +402,13 @@ function App(){
   useEffect(()=>{loadData();},[loadData]);
   const refresh=useCallback(async()=>{try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}},[]);
   if(loading)return <div className="loading-screen"><div className="spinner"/><span style={{fontSize:15,color:"var(--tx2)"}}>Loading Bureau Ops...</span></div>;
-  if(error)return <div className="loading-screen"><div style={{fontSize:48}}>⚠️</div><div style={{fontSize:15,color:"var(--rd)",maxWidth:400,textAlign:"center"}}>{error}</div><button className="btn btn-primary" onClick={loadData}>Retry</button></div>;
+  if(error)return <div className="loading-screen"><div style={{fontSize:48}}>⚠️</div><div style={{fontSize:15,color:"var(--rd)",maxWidth:400,textAlign:"center"}}>{error}</div>{error.includes("401")&&<div style={{fontSize:12,color:"var(--tx2)",maxWidth:440,textAlign:"left",margin:"12px 0",padding:"14px 18px",background:"var(--s2)",borderRadius:8,lineHeight:1.6}}>
+    <b>401 = Service key mismatch between Pages and Worker.</b><br/>
+    1. Check <code>BUREAU_SERVICE_KEY</code> is set in <b>both</b> Cloudflare Pages and Worker secrets<br/>
+    2. Values must match exactly (no trailing spaces/newlines)<br/>
+    3. After changing Pages secrets, <b>redeploy</b> (Deployments → Retry deployment)<br/>
+    4. Debug: visit <a href="/api/debug-proxy" target="_blank" style={{color:"var(--ac)"}}>/api/debug-proxy</a> to check key status
+  </div>}<button className="btn btn-primary" onClick={loadData}>Retry</button></div>;
   return <div className="app">
     <div className="sidebar"><div className="sidebar-logo"><h1>Bureau Ops</h1><span>Logistics & Payments</span></div>
     <nav className="sidebar-nav">{TABS.map(t=><button key={t.id} className={`ni ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}><span className="nic">{t.icon}</span><span>{t.label}</span></button>)}</nav>

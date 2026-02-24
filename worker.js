@@ -777,6 +777,7 @@ async function getToken(env) {
 
 const ALLOWED_ORIGINS = [
   "https://bureau-a04.pages.dev",
+  "https://bureau-l10.pages.dev",
   "http://localhost:8788",  // wrangler pages dev
 ];
 

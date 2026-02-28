@@ -1,8 +1,6 @@
 // ================================================================
 // Pages Function — API Proxy
-// Routes /api/* requests to the Bureau Worker with service key auth.
-// Cloudflare Access protects this entire Pages domain, so only
-// authenticated Google Workspace users can reach this proxy.
+// Routes /api/* requests to the Bureau Worker.
 // ================================================================
 
 const WORKER_ORIGIN = "https://bureau.nik-d88.workers.dev";
@@ -14,7 +12,6 @@ export async function onRequest(context) {
   const targetUrl = `${WORKER_ORIGIN}${url.pathname}${url.search}`;
 
   const headers = new Headers(request.headers);
-  headers.set("X-Bureau-Service-Key", env.BUREAU_SERVICE_KEY || "");
   headers.delete("host");
 
   const init = {

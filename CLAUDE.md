@@ -8,13 +8,11 @@ An operations dashboard for Bureau Booths managing purchase orders, payments, sp
 
 ```
 User
-    ↓ authenticates via
-Cloudflare Access (Google Workspace SSO)
-    ↓ serves
+    ↓ loads
 index.html (Cloudflare Pages, auto-deploys from GitHub)
     ↓ /api/* (same-origin)
 Pages Function proxy (functions/api/[[path]].js)
-    ↓ + X-Bureau-Service-Key header
+    ↓ forwards request
 Cloudflare Worker (bureau.nik-d88.workers.dev)
     ↓ reads/writes
 Google Sheets ("Bureau Ops Data" — the database, flat & accessible)
@@ -71,7 +69,7 @@ Bureau/                          ← GitHub repo root
   ├── wrangler.toml              ← Worker config (name=bureau, account_id)
   ├── functions/
   │   └── api/
-  │       └── [[path]].js        ← Pages Function: proxies /api/* to Worker with service key
+  │       └── [[path]].js        ← Pages Function: proxies /api/* to Worker
   ├── .github/workflows/
   │   └── deploy-worker.yml      ← GitHub Actions: auto-deploy Worker on push
   ├── bulk-mark-paid.js          ← One-off browser script: bulk mark orders as paid
@@ -99,43 +97,17 @@ The dashboard (index.html) auto-deploys via Cloudflare Pages connected to GitHub
 
 ## Authentication & Access Control
 
-The dashboard is protected by **Cloudflare Access** with Google Workspace SSO. Three layers of defence:
+The dashboard has no user-facing authentication — it is publicly accessible at the Pages URL. The only auth in the system is the **Google Service Account** used server-side by the Worker to authenticate with Google Sheets and Drive APIs (JWT/RS256 signing).
 
-1. **Cloudflare Access on Pages** — Users must authenticate via Google Workspace to load the dashboard. Only emails from the company domain are allowed.
-2. **Pages Function proxy** — API calls go to `/api/*` on the same Pages domain (same-origin), so they pass through Access automatically. The Function forwards to the Worker with a service key header.
-3. **Worker service key validation** — The Worker rejects any request without a valid `X-Bureau-Service-Key` header (except `/api/health`). This blocks direct access to `bureau.nik-d88.workers.dev`.
-4. **CORS lockdown** — The Worker only accepts cross-origin requests from `https://bureau-a04.pages.dev`.
+The Pages Function proxy forwards `/api/*` requests to the Worker without any additional auth headers. CORS is open (allows any origin).
 
-### Setup Steps (one-time, in Cloudflare Dashboard)
-
-**1. Generate a service key:**
-```
-openssl rand -hex 32
-```
-
-**2. Add the service key as a secret in two places:**
-- **Worker**: Cloudflare Dashboard → Workers & Pages → bureau → Settings → Variables → add `BUREAU_SERVICE_KEY`
-- **Pages**: Cloudflare Dashboard → Workers & Pages → bureau-a04 → Settings → Environment variables → add `BUREAU_SERVICE_KEY` (same value)
-
-**3. Set up Cloudflare Zero Trust + Google Workspace:**
-- Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) → Settings → Authentication → Add Google as IdP
-- In Google Cloud Console: create OAuth 2.0 Client ID, set redirect URI to `https://<your-team>.cloudflareaccess.com/cdn-cgi/access/callback`
-- Copy Client ID + Client Secret into the Cloudflare Google IdP config
-
-**4. Create an Access Application:**
-- Zero Trust → Access → Applications → Add Application → Self-hosted
-- Application domain: `bureau-a04.pages.dev`
-- Policy: Allow → Include → Emails ending in `@yourcompany.com`
-- Session duration: 24h (or your preference)
-
-### Cloudflare Worker Secrets (updated)
+### Cloudflare Worker Secrets
 
 | Secret | Description |
 |--------|-------------|
 | `GOOGLE_SERVICE_ACCOUNT` | Service account JSON key (full JSON blob) |
 | `SHEET_ID` | Google Sheet ID for "Bureau Ops Data" |
 | `ANTHROPIC_API_KEY` | Claude API key for document parsing |
-| `BUREAU_SERVICE_KEY` | Shared secret for Pages→Worker auth (also set in Pages env) |
 
 ## Core Business Logic
 

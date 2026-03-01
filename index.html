@@ -397,6 +397,106 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
 }
 
+// RowUploadModal — per-PO upload: doc goes to Drive, optional payment record
+function RowUploadModal({order,onClose,onRefresh}){
+  const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState("document");
+  const[parsing,setParsing]=useState(false);const[saving,setSaving]=useState(false);const[error,setError]=useState(null);
+  const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:""});
+  const fRef=useRef();
+  const pf=(k,v)=>setPayForm(p=>({...p,[k]:v}));
+
+  const handleFile=async f=>{
+    setFile(f);
+    if(docType==="remittance"){
+      setParsing(true);setError(null);
+      try{
+        const r=await parseDoc(f);
+        setPayForm(p=>({...p,amount:+(r.amount)||p.amount,currency:r.currency||p.currency,date:r.payment_date||p.date,source:r.source_entity||p.source,type:r.payment_type||p.type}));
+      }catch(e){/* AI parse failed, user fills manually */}
+      setParsing(false);
+    }
+    setSt("confirm");
+  };
+
+  const upload=async()=>{
+    setSaving(true);setError(null);
+    try{
+      // Always upload file to this PO's Drive folder
+      if(file&&order.ref)await apiUploadFile(file,order.ref);
+
+      // If remittance, also record the payment
+      if(docType==="remittance"){
+        const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
+        const bankId=bm[payForm.bank]||BANKS.find(b=>b.entity===payForm.source)?.id||"us-chase";
+        const alloc={};alloc[order.id]=+(payForm.amount)||0;
+        await apiPost("/api/payments",{
+          orderIds:[order.id],allocations:alloc,
+          bankAccount:bankId,sourceEntity:payForm.source||order.region||"US",
+          amount:+(payForm.amount)||0,currency:payForm.currency||"USD",
+          date:payForm.date||new Date().toISOString().slice(0,10),
+          type:payForm.type,notes:"",docName:file?.name
+        });
+      }
+      if(onRefresh)await onRefresh();
+      onClose();
+    }catch(e){setError("Upload failed: "+e.message);setSaving(false);}
+  };
+
+  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}>
+    <div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:480,width:"90%",padding:24}} onClick={e=>e.stopPropagation()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div><div style={{fontWeight:700,fontSize:15}}>Upload to {order.ref}</div><div style={{fontSize:12,color:"var(--tx3)"}}>{order.supplier} · <RegionBadge region={order.region}/></div></div>
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"var(--tx3)"}}>✕</button>
+      </div>
+
+      {error&&<div className="err">{error}</div>}
+
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:6}}>Upload Type</div>
+        <div style={{display:"flex",gap:8}}>
+          <button className={`bg-btn ${docType==="document"?"bg-act":""}`} onClick={()=>setDocType("document")} style={{flex:1,padding:"10px 12px",borderRadius:6,border:"1px solid var(--bd)"}}>📄 Document</button>
+          <button className={`bg-btn ${docType==="remittance"?"bg-act":""}`} onClick={()=>setDocType("remittance")} style={{flex:1,padding:"10px 12px",borderRadius:6,border:"1px solid var(--bd)"}}>🏦 Payment Remittance</button>
+        </div>
+      </div>
+
+      {st==="pick"&&<>
+        <div className="dropzone dz-compact" onClick={()=>fRef.current?.click()}>
+          <div className="dz-ci"><span>📎</span><span>Drop file or click to select</span></div>
+        </div>
+        <input ref={fRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)handleFile(f);e.target.value="";}}/>
+      </>}
+
+      {st==="confirm"&&<>
+        <div style={{padding:"10px 14px",background:"var(--s2)",borderRadius:"var(--r)",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>📄</span>
+          <div><div style={{fontWeight:600,fontSize:13}}>{file?.name}</div><div style={{fontSize:11,color:"var(--tx3)"}}>→ Drive folder for {order.ref}</div></div>
+        </div>
+
+        {parsing&&<div className="il-p"><div className="spinner"/><span>Parsing with AI...</span></div>}
+
+        {docType==="remittance"&&!parsing&&<div style={{marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:8}}>Payment Details</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Amount</div><div style={{display:"flex",gap:6}}><input className="ri" type="number" step="0.01" value={payForm.amount} onChange={e=>pf("amount",e.target.value)} style={{flex:1,fontFamily:"'JetBrains Mono',monospace"}}/><select className="ri" value={payForm.currency} onChange={e=>pf("currency",e.target.value)} style={{width:70}}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div></div>
+            <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Date</div><input className="ri" type="date" value={payForm.date} onChange={e=>pf("date",e.target.value)}/></div>
+            <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Type</div><select className="ri" value={payForm.type} onChange={e=>pf("type",e.target.value)}>{PAYMENT_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+            <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Source Entity</div><select className="ri" value={payForm.source} onChange={e=>pf("source",e.target.value)}>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></div>
+            <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Bank</div><select className="ri" value={payForm.bank} onChange={e=>pf("bank",e.target.value)}><option value="">Auto</option>{BANKS.map(b=><option key={b.id} value={b.hint}>{b.label}</option>)}</select></div>
+          </div>
+          {payForm.amount>0&&<div style={{marginTop:10,padding:"8px 12px",background:"var(--acl)",borderRadius:"var(--r)",fontSize:12,color:"var(--ac)"}}>
+            Will record <strong>{payForm.type}</strong> payment of <strong className="mono">{usd(+(payForm.amount))}</strong> linked to <strong>{order.ref}</strong>
+          </div>}
+        </div>}
+
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+          <button className="btn btn-ghost" onClick={()=>{setSt("pick");setFile(null);}}>Back</button>
+          <button className="btn btn-primary" onClick={upload} disabled={saving}>{saving?<><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/>Saving...</>:docType==="remittance"?"Upload & Record Payment":"Upload to Drive"}</button>
+        </div>
+      </>}
+    </div>
+  </div>;
+}
+
 // Convert orders to payment line items
 function ordersToLineItems(orders){
   const items=[];
@@ -421,7 +521,7 @@ function ordersToLineItems(orders){
 function OrdersTab({orders,payments,onRefresh,showOnlyUnpaid}){
   const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fSt,setFSt]=useState(showOnlyUnpaid?"unpaid":"all");const[fAge,setFAge]=useState("6M");
   const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);
-  const[editOrder,setEditOrder]=useState(null);
+  const[editOrder,setEditOrder]=useState(null);const[uploadFor,setUploadFor]=useState(null);
   const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
   const allItems=ordersToLineItems(orders);
   const fl=allItems.filter(item=>{if(showOnlyUnpaid&&item.lineStatus==="paid")return false;if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(fSt==="paid"&&item.lineStatus!=="paid")return false;if(fSt==="unpaid"&&item.lineStatus==="paid")return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
@@ -443,9 +543,10 @@ function OrdersTab({orders,payments,onRefresh,showOnlyUnpaid}){
     </div>
     <div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>
     <tbody>{sorted.map(item=>{const pmts=payments.filter(p=>(p.orderIds||[]).includes(item.id));const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td>{item.supplier}{item.notes?<span className="cm" style={{display:"block",fontSize:10}}>{item.notes}</span>:""}</td>
-      <td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}
+      <td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--ac)"}} title="Upload document">📎</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}
     {!sorted.length&&<tr><td colSpan={13} className="ec">No line items match</td></tr>}</tbody></table></div></div>
     {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{setEditOrder(null);await onRefresh();}} onClose={()=>setEditOrder(null)}/>}
+    {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}
   </>;
 }
 

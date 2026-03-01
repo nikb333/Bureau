@@ -278,8 +278,39 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,ord
 }
 
 // ReviewScreen
-function ReviewScreen({parsed,ed,setEd,docType,onConfirm,onCancel,fileName,orders,payments}){
+function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCancel,fileName,orders,payments}){
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const cd=parsed?.confidence_details||{};const oc=parsed?.confidence||"medium";
+  const switchDocType=newType=>{
+    if(newType===docType)return;
+    // Remap fields between doc types
+    const d={...ed};
+    if(newType==="purchase_order"){
+      // Map from invoice/remittance fields into PO fields
+      if(!d.total_value&&d.total_amount)d.total_value=d.total_amount;
+      if(!d.total_value&&d.amount)d.total_value=d.amount;
+      const tv=+(d.total_value)||0;
+      if(!d.deposit_amount&&tv)d.deposit_amount=Math.round(tv*0.3*100)/100;
+      if(!d.release_amount&&tv)d.release_amount=Math.round((tv-+(d.deposit_amount||0))*100)/100;
+      if(!d.po_reference&&d.reference)d.po_reference=d.reference;
+      if(!d.po_reference&&d.po_references?.[0])d.po_reference=d.po_references[0];
+      if(!d.po_date&&d.payment_date)d.po_date=d.payment_date;
+      if(!d.po_date&&d.invoice_date)d.po_date=d.invoice_date;
+      if(d.po_date&&!d.deposit_due){d.deposit_due=d.po_date;const rd=new Date(d.po_date);rd.setDate(rd.getDate()+21);d.release_due=rd.toISOString().slice(0,10);}
+      if(!d.destination_region&&d.source_entity)d.destination_region=d.source_entity;
+    }else if(newType==="remittance"){
+      if(!d.amount&&d.total_value)d.amount=d.total_value;
+      if(!d.amount&&d.total_amount)d.amount=d.total_amount;
+      if(!d.payment_date&&d.po_date)d.payment_date=d.po_date;
+      if(!d.po_references){const ref=d.po_reference||"";d.po_references=[ref];}
+      if(!d.source_entity&&d.destination_region)d.source_entity=d.destination_region;
+    }else{
+      if(!d.total_amount&&d.total_value)d.total_amount=d.total_value;
+      if(!d.total_amount&&d.amount)d.total_amount=d.amount;
+      if(!d.po_reference&&d.po_references?.[0])d.po_reference=d.po_references[0];
+    }
+    setEd(d);
+    if(onChangeDocType)onChangeDocType(newType);
+  };
   const[multiPO,setMultiPO]=useState(false);const[allocs,setAllocs]=useState([]);
   const addAlloc=o=>{if(allocs.find(a=>a.orderId===o.id))return;setAllocs(p=>[...p,{orderId:o.id,ref:o.ref,amount:0}]);};
   const rmAlloc=oid=>setAllocs(p=>p.filter(a=>a.orderId!==oid));
@@ -295,7 +326,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onConfirm,onCancel,fileName,order
   return <div className="rc">
     <div className="rc-h"><div><div className="rc-t">Review Extracted Data</div><div className="rc-f">{fileName}</div></div><div className={`rc-c rc-c-${oc}`}>{oc==="high"?"✓ High Confidence":oc==="medium"?"? Check Fields":"⚠ Needs Review"}</div></div>
     <div className="rs-t">Document Type</div>
-    <div className="rr"><div className="rr-s"><ConfIcon level="high"/></div><div className="rr-l">Type</div><div className="rr-i"><span className="badge badge-blue">{DOC_TYPES.find(d=>d.id===docType)?.icon} {DOC_TYPES.find(d=>d.id===docType)?.label}</span></div></div>
+    <div className="rr"><div className="rr-s"><ConfIcon level="high"/></div><div className="rr-l">Type</div><div className="rr-i">{onChangeDocType?<select value={docType} onChange={e=>switchDocType(e.target.value)} className="ri">{DOC_TYPES.map(d=><option key={d.id} value={d.id}>{d.icon} {d.label}</option>)}</select>:<span className="badge badge-blue">{DOC_TYPES.find(d=>d.id===docType)?.icon} {DOC_TYPES.find(d=>d.id===docType)?.label}</span>}</div></div>
 
     {docType==="purchase_order"&&<>
       <div className="rs-t">Order Details</div>
@@ -396,7 +427,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   if(st==="saving")return <div className="il-p"><div className="spinner"/><span>Saving...</span></div>;
   if(st==="done")return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>Saved</span></div>;
   if(st==="review"&&docType==="remittance")return <>{error&&<div className="err">{error}</div>}<RemittanceAllocationUI parsed={parsed} ed={ed} setEd={setEd} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
-  return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
+  return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onChangeDocType={setDocType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
 }
 
 // RowUploadModal — per-PO upload: doc goes to Drive, optional payment record

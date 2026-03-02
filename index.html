@@ -102,8 +102,7 @@ const BANKS = [
 const FX = { RMB: 6.91, USD: 1, AUD: 0.71, CAD: 0.73, GBP: 1.37, EUR: 1.19 };
 const GDRIVE_BASE = "https://drive.google.com/drive/folders/";
 const TABS = [
-  { id: "outstanding", label: "POs Outstanding", icon: "🔴" },
-  { id: "allpos", label: "All POs", icon: "📦" },
+  { id: "orders", label: "Purchase Orders", icon: "📦" },
   { id: "payments", label: "Payments", icon: "💳" },
   { id: "clearing", label: "Intercompany", icon: "🔄" },
   { id: "forecast", label: "Cash Forecast", icon: "📊" },
@@ -116,13 +115,30 @@ const pct = v => (v * 100).toFixed(1) + "%";
 const getWeekStart = d => { const dt = new Date(d); const day = dt.getDay(); const diff = dt.getDate() - day + (day === 0 ? -6 : 1); dt.setDate(diff); dt.setHours(0,0,0,0); return dt; };
 const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDate(e.getDate() + 6); return `${s.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`; };
 const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
+const num = v => { const n = +(v||0); return Number.isFinite(n) ? n : 0; };
+function effectiveReleaseAmt(order){
+  const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
+  if (rel > 0.01) return rel;
+  if ((order.releaseStatus||"").toLowerCase() !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
+  return 0;
+}
 
 // API helpers
-async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
-async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error("API "+r.status+": "+(await r.text())); return r.json(); }
-async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
-async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error("API "+r.status+": "+(await r.text())); return r.json(); }
-async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error("Upload failed"); return r.json(); }
+async function parseApiError(r, fallback){
+  const raw = await r.text();
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    detail = parsed?.error || parsed?.message || raw;
+  } catch (_) {}
+  detail = (detail || "").trim();
+  return detail ? `${fallback} (${r.status}): ${detail}` : `${fallback} (${r.status})`;
+}
+async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error(await parseApiError(r,"Upload failed")); return r.json(); }
 
 // Fuzzy match existing payment for remittance upload
 function fuzzyMatchPayment(remittanceData, payments) {
@@ -167,8 +183,8 @@ function fuzzyMatchPayment(remittanceData, payments) {
 function expandOrdersToLines(orders) {
   const lines=[];
   (orders||[]).forEach(o=>{
-    const depAmtUSD=toUSD(o.depositAmt,o.currency);
-    const relAmtUSD=toUSD(o.releaseAmt,o.currency);
+    const depAmtUSD=toUSD(num(o.depositAmt),o.currency);
+    const relAmtUSD=toUSD(effectiveReleaseAmt(o),o.currency);
     if(o.depositStatus!=="paid"&&depAmtUSD>0.01)
       lines.push({...o,lineId:o.id+"-dep",lineType:"deposit",lineAmtUSD:depAmtUSD,outstanding:depAmtUSD,hasBalance:true,
         depAmtUSD,relAmtUSD,depUnpaid:true,relUnpaid:o.releaseStatus!=="paid"});
@@ -212,7 +228,7 @@ function fuzzyMatchPO(input, orders, payments) {
     else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}
     else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}
     else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
-    const depAmtUSD=toUSD(o.depositAmt,o.currency),relAmtUSD=toUSD(o.releaseAmt,o.currency);
+    const depAmtUSD=toUSD(num(o.depositAmt),o.currency),relAmtUSD=toUSD(effectiveReleaseAmt(o),o.currency);
     const depUnpaid=o.depositStatus!=="paid",relUnpaid=o.releaseStatus!=="paid";
     const outstanding=(depUnpaid?depAmtUSD:0)+(relUnpaid?relAmtUSD:0);
     const bal=outstanding>0.01;
@@ -284,6 +300,81 @@ function EditOrderModal({order,onSave,onClose}){
     </div>
     <div style={{display:"flex",gap:12,marginTop:20,justifyContent:"flex-end"}}><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button></div>
   </div></div>;
+}
+
+// ── Accounting-style line match card ──
+function LineMatchCard({selectedLine,payAmt,remaining,partialAmt,setPartialAmt,onPayFull,onPayPartial,onCancel}){
+  const LineBadge=({type})=><span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:type==="deposit"?"rgba(59,130,246,.15)":"rgba(16,185,129,.15)",color:type==="deposit"?"#2563eb":"#059669",letterSpacing:".04em"}}>{type==="deposit"?"DEPOSIT":"RELEASE"}</span>;
+  const fullAmt=selectedLine.lineAmtUSD;
+  const applied=+(partialAmt)>0?+(partialAmt):Math.min(remaining,fullAmt);
+  const afterThis=fullAmt-applied;
+  const coveragePct=fullAmt>0?Math.min(applied/fullAmt,1):0;
+  const isExact=Math.abs(applied-fullAmt)<0.02;
+  const isOver=applied>fullAmt+0.01;
+  const isPartial=applied<fullAmt-0.01&&!isOver;
+  const barColor=isOver?"var(--rd)":isExact?"var(--gn)":"var(--ac)";
+
+  return <div style={{border:`2px solid ${isOver?"var(--rd)":isExact?"var(--gnbd)":"var(--bd2)"}`,borderRadius:"var(--r2)",marginBottom:16,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 16px",background:"var(--s2)",borderBottom:"1px solid var(--bd)"}}>
+      <RegionBadge region={selectedLine.region}/><LineBadge type={selectedLine.lineType}/>
+      <span style={{fontWeight:700,fontSize:14}}>{selectedLine.ref}</span>
+      <span style={{fontSize:12,color:"var(--tx2)"}}>{selectedLine.inv} · {selectedLine.supplier}</span>
+      <button onClick={onCancel} style={{marginLeft:"auto",background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",fontSize:22,lineHeight:1,padding:"0 4px"}}>×</button>
+    </div>
+
+    <div style={{padding:"18px 20px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"2px 24px",marginBottom:14}}>
+        <span style={{fontSize:11,color:"var(--tx3)",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em",padding:"4px 0"}}>{selectedLine.lineType==="deposit"?"Deposit":"Release"} Invoice Total</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15,textAlign:"right",padding:"4px 0"}}>{usd(fullAmt)}</span>
+        <span style={{fontSize:12,color:"var(--tx3)",padding:"4px 0"}}>Previously paid</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:"var(--tx3)",textAlign:"right",padding:"4px 0"}}>{usd(0)}</span>
+        <div style={{gridColumn:"1/-1",borderTop:"2px solid var(--bd)",margin:"4px 0"}}/>
+        <span style={{fontSize:13,fontWeight:700,padding:"4px 0"}}>Outstanding Balance</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:16,color:"var(--am)",textAlign:"right",padding:"4px 0"}}>{usd(fullAmt)}</span>
+      </div>
+
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx3)",marginBottom:5}}><span style={{fontWeight:600}}>This remittance covers</span><span style={{fontWeight:700,color:barColor}}>{(coveragePct*100).toFixed(1)}%</span></div>
+        <div style={{height:10,background:"var(--s3)",borderRadius:5,overflow:"hidden",marginBottom:5}}><div style={{height:"100%",width:`${Math.min(coveragePct*100,100)}%`,background:barColor,borderRadius:5,transition:"width .35s ease"}}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx3)"}}>
+          <span>Applying: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:barColor}}>{usd(applied)}</span></span>
+          {isExact&&<span style={{fontWeight:700,color:"var(--gn)"}}>✓ Full payment</span>}
+          {isOver&&<span style={{fontWeight:700,color:"var(--rd)"}}>⚠ Exceeds balance by {usd(applied-fullAmt)}</span>}
+          {isPartial&&<span><span style={{color:"var(--am)",fontWeight:600}}>{usd(afterThis)} remains after</span></span>}
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"2px 24px",marginBottom:14,paddingTop:10,borderTop:"1px solid var(--bd)"}}>
+        <span style={{fontSize:12,color:"var(--ac)",fontWeight:600,padding:"3px 0"}}>This remittance</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:14,color:"var(--ac)",textAlign:"right",padding:"3px 0"}}>{usd(applied)}</span>
+        <span style={{fontSize:13,fontWeight:700,padding:"3px 0"}}>Balance after this payment</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15,textAlign:"right",padding:"3px 0",color:isExact?"var(--gn)":isOver?"var(--rd)":"var(--am)"}}>{usd(Math.max(afterThis,0))}</span>
+      </div>
+
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <div style={{flex:1}}><div style={{fontSize:11,color:"var(--tx2)",marginBottom:4,fontWeight:600}}>Amount to apply from this remittance</div><input type="number" step="0.01" value={partialAmt} onChange={e=>setPartialAmt(e.target.value)} className="ri" style={{width:"100%",fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,borderColor:isOver?"var(--rd)":"var(--bd)"}} placeholder={usd(Math.min(remaining,fullAmt))}/></div>
+        <button onClick={onPayPartial} className="btn btn-primary" style={{padding:"9px 16px",fontSize:13}} disabled={!(+(partialAmt)>0)}>Apply Partial</button>
+        <button onClick={onPayFull} className="btn btn-primary" style={{padding:"9px 16px",fontSize:13,background:"var(--gn)"}}>Pay Full {usd(Math.min(remaining,fullAmt))}</button>
+      </div>
+      {isOver&&<div style={{marginTop:8,fontSize:11,fontWeight:600,background:"var(--rdb)",color:"var(--rd)",padding:"6px 10px",borderRadius:4}}>⚠ Amount exceeds the outstanding balance of {usd(fullAmt)}</div>}
+      {isExact&&+(partialAmt)>0&&<div style={{marginTop:8,fontSize:11,fontWeight:700,background:"var(--gnb)",color:"var(--gn)",padding:"6px 10px",borderRadius:4}}>✓ This exactly covers the {selectedLine.lineType}</div>}
+    </div>
+  </div>;
+}
+
+// ── Allocated card with mini progress bar ──
+function AllocCard({a,onRemove}){
+  const LineBadge=({type})=><span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:type==="deposit"?"rgba(59,130,246,.15)":"rgba(16,185,129,.15)",color:type==="deposit"?"#2563eb":"#059669",letterSpacing:".04em"}}>{type==="deposit"?"DEPOSIT":"RELEASE"}</span>;
+  const isPartial=a.amount<a.lineAmtUSD-0.01;
+  const coverPct=a.lineAmtUSD>0?Math.min(a.amount/a.lineAmtUSD,1):0;
+  const barColor=isPartial?"var(--am)":"var(--gn)";
+  return <div style={{borderRadius:"var(--r)",marginBottom:8,overflow:"hidden",border:`1px solid ${isPartial?"var(--ambd)":"var(--gnbd)"}`,background:isPartial?"linear-gradient(135deg,#fffbeb,#fef9e6)":"var(--gnb)"}}>
+    <div style={{padding:"12px 14px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><RegionBadge region={a.region}/><LineBadge type={a.lineType}/><span style={{fontWeight:700,fontSize:13}}>{a.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span>{isPartial?<span style={{fontSize:10,fontWeight:700,color:"var(--am)",background:"rgba(217,119,6,.15)",padding:"2px 6px",borderRadius:4}}>PARTIAL</span>:<span style={{fontSize:10,fontWeight:700,color:"var(--gn)",background:"rgba(5,150,105,.15)",padding:"2px 6px",borderRadius:4}}>FULL ✓</span>}<button onClick={onRemove} style={{marginLeft:"auto",background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:20,padding:"0 4px",fontWeight:600}}>×</button></div>
+      <div style={{display:"flex",gap:16,fontSize:12,color:"var(--tx2)",marginBottom:6}}><span>Invoice: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:"var(--tx)"}}>{usd(a.lineAmtUSD)}</span></span><span>→ Applying: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:barColor}}>{usd(a.amount)}</span></span>{isPartial?<span>→ Remaining: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:"var(--am)"}}>{usd(a.lineAmtUSD-a.amount)}</span></span>:<span style={{color:"var(--gn)",fontWeight:600}}>→ Fully covered ✓</span>}</div>
+      <div style={{height:6,background:"var(--s3)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(coverPct*100,100)}%`,background:barColor,borderRadius:3}}/></div>
+    </div>
+  </div>;
 }
 
 // RemittanceAllocationUI — allocation is always against deposit OR release, never total
@@ -365,40 +456,11 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,ord
         </div>)}
       </div>}
 
-      {selectedLine&&<div style={{padding:"16px 18px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",border:"2px solid var(--am)",borderRadius:"var(--r2)",marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <RegionBadge region={selectedLine.region}/>
-          <LineBadge type={selectedLine.lineType}/>
-          <span style={{fontWeight:700,fontSize:14}}>{selectedLine.ref}</span>
-          <span style={{fontSize:12,color:"var(--tx2)"}}>{selectedLine.inv} · {selectedLine.supplier}</span>
-        </div>
-        <div style={{fontSize:12,color:"var(--tx2)",marginBottom:12}}>
-          {selectedLine.lineType==="deposit"?"Deposit":"Release"} amount: <span className="mono" style={{fontWeight:700,color:"var(--tx)"}}>{usd(selectedLine.lineAmtUSD)}</span>
-          {Math.abs(selectedLine.lineAmtUSD-payAmt)<0.02&&<span style={{marginLeft:10,fontSize:11,fontWeight:700,color:"var(--gn)"}}>✓ Exact match</span>}
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <div style={{flex:1}}><div style={{fontSize:11,color:"var(--tx2)",marginBottom:4,fontWeight:600}}>Partial Amount (leave blank to pay full {selectedLine.lineType})</div><input type="number" step="0.01" value={partialAmt} onChange={e=>setPartialAmt(e.target.value)} className="ri" style={{width:"100%",fontFamily:"'JetBrains Mono',monospace"}} placeholder={usd(Math.min(remaining,selectedLine.lineAmtUSD))}/></div>
-          <button onClick={payPartial} className="btn btn-primary" style={{padding:"8px 14px",fontSize:12}}>Pay Partial</button>
-          <button onClick={payFull} className="btn btn-primary" style={{padding:"8px 14px",fontSize:12,background:"var(--gn)"}}>Pay Full ({usd(Math.min(remaining,selectedLine.lineAmtUSD))})</button>
-          <button onClick={cancelSelect} className="btn btn-ghost" style={{padding:"8px 12px",fontSize:12}}>Cancel</button>
-        </div>
-      </div>}
+      {selectedLine&&<LineMatchCard selectedLine={selectedLine} payAmt={payAmt} remaining={remaining} partialAmt={partialAmt} setPartialAmt={setPartialAmt} onPayFull={payFull} onPayPartial={payPartial} onCancel={cancelSelect}/>}
 
       {allocs.length>0&&<div style={{marginTop:16}}>
         <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:8}}>Allocated</div>
-        {allocs.map(a=>{const isPartial=a.amount<a.lineAmtUSD-0.01;return <div key={a.lineId} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:isPartial?"linear-gradient(135deg,#fffbeb,#fef9e6)":"var(--s2)",border:isPartial?"1px solid var(--am)":"1px solid var(--bd)",borderRadius:"var(--r)",marginBottom:8}}>
-          <div style={{flex:1}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-              <RegionBadge region={a.region}/>
-              <LineBadge type={a.lineType}/>
-              <span style={{fontWeight:700,fontSize:13}}>{a.ref}</span>
-              <span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span>
-              {isPartial&&<span style={{fontSize:10,fontWeight:700,color:"var(--am)",background:"rgba(217,119,6,.15)",padding:"2px 6px",borderRadius:4}}>PARTIAL</span>}
-            </div>
-            <div style={{fontSize:11,color:"var(--tx2)"}}>Allocated: <span className="mono" style={{fontWeight:600}}>{usd(a.amount)}</span> of {usd(a.lineAmtUSD)} {a.lineType}</div>
-          </div>
-          <button onClick={()=>rmAlloc(a.lineId)} style={{background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:20,padding:"4px 8px",fontWeight:600}} title="Remove">×</button>
-        </div>;})}
+        {allocs.map(a=><AllocCard key={a.lineId} a={a} onRemove={()=>rmAlloc(a.lineId)}/>)}
       </div>}
 
       {allocs.length===0&&!selectedLine&&!search&&<div style={{textAlign:"center",padding:32,color:"var(--tx3)",background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>Search a PO and select its deposit or release to allocate payment</div>}
@@ -614,6 +676,14 @@ function RowUploadModal({order,onClose,onRefresh}){
         </div>
       </div>
 
+      {docType==="remittance"&&<div style={{marginBottom:16,border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden"}}>
+        <div style={{padding:"8px 14px",background:"var(--s2)",borderBottom:"1px solid var(--bd)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>PO Invoice Summary — {order.ref}</div>
+        <div style={{padding:"12px 14px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {(order.depositAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.depositStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.depositStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.depositStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Deposit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.depositAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.depositAmt).toLocaleString()} · {order.depositStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+          {effectiveReleaseAmt(order)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.releaseStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.releaseStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.releaseStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Release</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(effectiveReleaseAmt(order),order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(effectiveReleaseAmt(order)).toLocaleString()} · {order.releaseStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+        </div>
+      </div>}
+
       {st==="pick"&&<>
         <div className="dropzone dz-compact" onClick={()=>fRef.current?.click()}>
           <div className="dz-ci"><span>📎</span><span>Drop file or click to select</span></div>
@@ -638,9 +708,31 @@ function RowUploadModal({order,onClose,onRefresh}){
             <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Source Entity</div><select className="ri" value={payForm.source} onChange={e=>pf("source",e.target.value)}>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></div>
             <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Bank</div><select className="ri" value={payForm.bank} onChange={e=>pf("bank",e.target.value)}><option value="">Auto</option>{BANKS.map(b=><option key={b.id} value={b.hint}>{b.label}</option>)}</select></div>
           </div>
-          {payForm.amount>0&&<div style={{marginTop:10,padding:"8px 12px",background:"var(--acl)",borderRadius:"var(--r)",fontSize:12,color:"var(--ac)"}}>
-            Will record <strong>{payForm.type}</strong> payment of <strong className="mono">{usd(+(payForm.amount))}</strong> linked to <strong>{order.ref}</strong>
-          </div>}
+          {+(payForm.amount)>0&&(()=>{
+            const tgt=payForm.type==="Deposit"?toUSD(num(order.depositAmt),order.currency):toUSD(effectiveReleaseAmt(order),order.currency);
+            const amt=+(payForm.amount);
+            const isExact=tgt>0&&Math.abs(amt-tgt)<0.02;
+            const isOver=amt>tgt+0.01;
+            const bar=isOver?"var(--rd)":isExact?"var(--gn)":"var(--ac)";
+            return <div style={{marginTop:10,border:`2px solid ${isOver?"var(--rd)":isExact?"var(--gnbd)":"var(--bd)"}`,borderRadius:"var(--r)",padding:"12px 14px",background:isOver?"var(--rdb)":isExact?"var(--gnb)":"var(--s2)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"3px 16px",marginBottom:8}}>
+                <span style={{fontSize:11,color:"var(--tx3)",fontWeight:600}}>{payForm.type} Invoice Total</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,textAlign:"right"}}>{usd(tgt)}</span>
+                <span style={{fontSize:11,color:"var(--tx3)"}}>This payment</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,textAlign:"right",color:bar}}>{usd(amt)}</span>
+                <hr style={{gridColumn:"1/-1",border:"none",borderTop:"1px solid var(--bd)",margin:"3px 0"}}/>
+                <span style={{fontSize:12,fontWeight:700}}>Balance remaining</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,textAlign:"right",color:isExact?"var(--gn)":isOver?"var(--rd)":"var(--am)"}}>{usd(Math.max(tgt-amt,0))}</span>
+              </div>
+              <div style={{height:8,background:"var(--s3)",borderRadius:4,overflow:"hidden",marginBottom:4}}><div style={{height:"100%",width:`${tgt>0?Math.min(amt/tgt*100,100):0}%`,background:bar,borderRadius:4,transition:"width .3s"}}/></div>
+              <div style={{fontSize:11,color:"var(--tx3)",display:"flex",justifyContent:"space-between"}}>
+                <span>{tgt>0?(amt/tgt*100).toFixed(1):0}% covered</span>
+                {isExact&&<span style={{color:"var(--gn)",fontWeight:700}}>✓ Exact match</span>}
+                {!isExact&&!isOver&&tgt>0&&<span style={{color:"var(--am)",fontWeight:600}}>Partial — {usd(tgt-amt)} remains</span>}
+                {isOver&&<span style={{color:"var(--rd)",fontWeight:700}}>⚠ Exceeds by {usd(amt-tgt)}</span>}
+              </div>
+            </div>;
+          })()}
         </div>}
 
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
@@ -656,15 +748,17 @@ function RowUploadModal({order,onClose,onRefresh}){
 function ordersToLineItems(orders){
   const items=[];
   orders.forEach(o=>{
-    const hasDep=o.depositAmt>0;
-    const hasRel=o.releaseAmt>0;
+    const depAmt=num(o.depositAmt);
+    const relAmt=effectiveReleaseAmt(o);
+    const hasDep=depAmt>0;
+    const hasRel=relAmt>0;
     if(hasDep&&hasRel){
-      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
-      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     }else if(hasDep){
-      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
     }else if(hasRel){
-      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     }else{
       // Single-amount PO — treat as Release
       items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel"});
@@ -673,39 +767,54 @@ function ordersToLineItems(orders){
   return items;
 }
 
+
 // Tabs
-function OrdersTab({orders,payments,onRefresh,showOnlyUnpaid}){
-  const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fSt,setFSt]=useState(showOnlyUnpaid?"unpaid":"all");const[fAge,setFAge]=useState("6M");
-  const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);
+function OrdersTab({orders,payments,onRefresh}){
+  const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fAge,setFAge]=useState("6M");
+  const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);const[showPaid,setShowPaid]=useState(false);
   const[editOrder,setEditOrder]=useState(null);const[uploadFor,setUploadFor]=useState(null);
   const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
   const allItems=ordersToLineItems(orders);
-  const fl=allItems.filter(item=>{if(showOnlyUnpaid&&item.lineStatus==="paid")return false;if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(fSt==="paid"&&item.lineStatus!=="paid")return false;if(fSt==="unpaid"&&item.lineStatus==="paid")return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
-  const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="usdEquiv")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paidDate")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;if(sort.key==="status"){const sv=s=>s==="paid"?0:s==="due"?1:s==="overdue"?2:3;return(sv(a.lineStatus)-sv(b.lineStatus))*d;}return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
-  const tv=fl.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
-  const tp=fl.filter(i=>i.lineStatus==="paid").reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
+  const baseFiltered=allItems.filter(item=>{if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
+  const sortItems=items=>[...items].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="usdEquiv")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paidDate")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;if(sort.key==="status"){const sv=s=>s==="paid"?0:s==="due"?1:s==="overdue"?2:3;return(sv(a.lineStatus)-sv(b.lineStatus))*d;}return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
+  const unpaidItems=baseFiltered.filter(i=>i.lineStatus!=="paid");
+  const paidItems=baseFiltered.filter(i=>i.lineStatus==="paid");
+  const unpaidSorted=sortItems(unpaidItems);
+  const paidSorted=sortItems(paidItems);
+  const tv=baseFiltered.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
+  const tp=paidItems.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
+  const renderRows=items=><tbody>{items.map(item=>{const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td><td className="cm">{fmtDate(item.poDate)}</td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td>{item.supplier}{item.notes?<span className="cm" style={{display:"block",fontSize:10}}>{item.notes}</span>:""}</td><td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}{!items.length&&<tr><td colSpan={14} className="ec">No line items match</td></tr>}</tbody>;
+
   return <>
-    <div className="ph"><div><h2>{showOnlyUnpaid?"Outstanding Purchase Orders":"All Purchase Orders"}</h2><p className="ps">{fl.length} of {allItems.length} line items{showOnlyUnpaid?" (unpaid only)":""}</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
+    <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{unpaidItems.length} unpaid · {paidItems.length} paid (from {baseFiltered.length} filtered line items)</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
     {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
-    <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{fl.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
+    <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{baseFiltered.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
     <div className="filter-bar">
       <input placeholder="Search PO, invoice..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
       <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["1M","3M","6M","1Y"]} value={fAge} onChange={setFAge} allLabel="All"/></div>
       <div className="filter-section"><span className="filter-label">Region</span><BtnGroup options={ENTITIES} value={fR} onChange={setFR} allLabel="All"/></div>
       <div className="filter-section"><span className="filter-label">Supplier</span><BtnGroup options={SUPPLIERS} value={fS} onChange={setFS} allLabel="All"/></div>
-      {!showOnlyUnpaid&&<div className="filter-section"><span className="filter-label">Status</span><BtnGroup options={["paid","unpaid"]} value={fSt} onChange={setFSt} allLabel="All"/></div>}
     </div>
-    <div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>
-    <tbody>{sorted.map(item=>{const pmts=payments.filter(p=>(p.orderIds||[]).includes(item.id));const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td><td className="cm">{fmtDate(item.poDate)}</td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td>{item.supplier}{item.notes?<span className="cm" style={{display:"block",fontSize:10}}>{item.notes}</span>:""}</td>
-      <td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}
-    {!sorted.length&&<tr><td colSpan={14} className="ec">No line items match</td></tr>}</tbody></table></div></div>
+
+    <div style={{marginBottom:12,padding:"12px 14px",border:"1px solid var(--ambd)",background:"var(--amb)",borderRadius:"var(--r)"}}>
+      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--am)",marginBottom:8}}>Outstanding / Unpaid POs</div>
+      <div style={{fontSize:12,color:"var(--tx2)",marginBottom:8}}>Shown by default</div>
+      <div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>{renderRows(unpaidSorted)}</table></div></div>
+    </div>
+
+    <div style={{border:"1px solid var(--bd)",borderRadius:"var(--r)",overflow:"hidden"}}>
+      <button onClick={()=>setShowPaid(p=>!p)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:"var(--s2)",border:"none",cursor:"pointer",fontWeight:700,color:"var(--tx)",fontSize:13}}>
+        <span>Paid POs ({paidSorted.length})</span><span>{showPaid?"▾":"▸"}</span>
+      </button>
+      {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div></div>}
+    </div>
+
     {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{setEditOrder(null);await onRefresh();}} onClose={()=>setEditOrder(null)}/>}
     {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}
   </>;
 }
-
 function PaymentsTab({orders,payments,onRefresh}){
   const[showUp,setShowUp]=useState(false);const[fR,setFR]=useState("all");const[search,setSearch]=useState("");const[fPeriod,setFPeriod]=useState("6M");
   const[sort,setSort]=useState({key:"date",dir:"desc"});
@@ -749,7 +858,7 @@ function IntercompanyTab({orders,payments}){
 }
 
 function ForecastTab({orders}){
-  const weeks={};orders.forEach(o=>{const add=(d,a,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else if(new Date(d)<new Date())weeks[wk].over+=u;else weeks[wk].due+=u;weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,status:st,label,date:d});};add(o.depositDue,o.depositAmt,o.depositStatus,"Deposit");add(o.releaseDue,o.releaseAmt,o.releaseStatus,"Release");});
+  const weeks={};orders.forEach(o=>{const add=(d,a,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else if(new Date(d)<new Date())weeks[wk].over+=u;else weeks[wk].due+=u;weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,status:st,label,date:d});};add(o.depositDue,num(o.depositAmt),o.depositStatus,"Deposit");add(o.releaseDue,effectiveReleaseAmt(o),o.releaseStatus,"Release");});
   const sortedWeeks=Object.entries(weeks).sort(([a],[b])=>a.localeCompare(b));let cumul=0;
   const withCumul=sortedWeeks.map(([wk,d])=>{cumul+=d.total;return[wk,d,cumul];});
   const[expanded,setExpanded]=useState({});const toggle=wk=>setExpanded(p=>({...p,[wk]:!p[wk]}));
@@ -766,7 +875,7 @@ function ForecastTab({orders}){
 
 // App
 function App(){
-  const[tab,setTab]=useState("outstanding");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);const[showHelp,setShowHelp]=useState(false);
+  const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);const[showHelp,setShowHelp]=useState(false);
   const loadData=useCallback(async()=>{try{setLoading(true);setError(null);const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){setError(e.message);}finally{setLoading(false);};},[]);
   useEffect(()=>{loadData();},[loadData]);
   const refresh=useCallback(async()=>{try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}},[]);
@@ -779,8 +888,7 @@ function App(){
     <div className="sf"><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{orders.length} POs · {payments.length} payments</span><div style={{display:"flex",gap:6,alignItems:"center"}}><a href="https://docs.google.com/spreadsheets/d/1a_j_qCDWF9y8LUfT3iq-R5ZzydID-A36/edit?gid=17854855#gid=17854855&fvid=547760767" target="_blank" rel="noopener" style={{background:"#34a853",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:13,cursor:"pointer",fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none"}} title="Open Google Sheet">📊</a><button onClick={()=>setShowHelp(true)} style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:14,cursor:"pointer",fontWeight:700}} title="Backend guide & troubleshooting">?</button></div></div>{lastRefresh&&<div style={{marginTop:4,cursor:"pointer"}} onClick={refresh} title="Click to refresh">🔄 {lastRefresh.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>}</div></div>
     <main className="mn">
       {sideUpload&&<div className="us" style={{marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontWeight:700,fontSize:14}}>Quick Upload</span><button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:11}} onClick={()=>setSideUpload(false)}>✕ Close</button></div><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={refresh}/></div>}
-      {tab==="outstanding"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh} showOnlyUnpaid={true}/>}
-      {tab==="allpos"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh} showOnlyUnpaid={false}/>}
+      {tab==="orders"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="payments"&&<PaymentsTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="clearing"&&<IntercompanyTab orders={orders} payments={payments}/>}
       {tab==="forecast"&&<ForecastTab orders={orders}/>}

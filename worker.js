@@ -238,9 +238,9 @@ function rowToOrder(row) {
   return {
     id: row[0] || "", region: row[1] || "", ref: row[2] || "", inv: row[3] || "",
     supplier: row[4] || "", currency: row[5] || "USD", totalValue: num(row[6]),
-    depositAmt: num(row[7]), depositStatus: row[8] || "unpaid",
+    depositAmt: num(row[7]), depositStatus: row[8] || "",
     depositDue: row[9] || "", depositPaid: row[10] || "",
-    releaseAmt: num(row[11]), releaseStatus: row[12] || "unpaid",
+    releaseAmt: num(row[11]), releaseStatus: row[12] || "",
     releaseDue: row[13] || "", releasePaid: row[14] || "",
     notes: row[15] || "", driveFolderId: row[16] || "",
     created: row[17] || "", updated: row[18] || "",

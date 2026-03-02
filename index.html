@@ -188,9 +188,10 @@ function expandOrdersToLines(orders) {
     if(o.depositStatus!=="paid"&&depAmtUSD>0.01)
       lines.push({...o,lineId:o.id+"-dep",lineType:"deposit",lineAmtUSD:depAmtUSD,outstanding:depAmtUSD,hasBalance:true,
         depAmtUSD,relAmtUSD,depUnpaid:true,relUnpaid:o.releaseStatus!=="paid"});
-    if(o.releaseStatus!=="paid"&&relAmtUSD>0.01)
+    const relOpen=(o.releaseStatus||"unpaid")!=="paid";
+    if(relOpen&&(relAmtUSD>0.01||hasExplicitReleaseLine(o)))
       lines.push({...o,lineId:o.id+"-rel",lineType:"release",lineAmtUSD:relAmtUSD,outstanding:relAmtUSD,hasBalance:true,
-        depAmtUSD,relAmtUSD,depUnpaid:o.depositStatus!=="paid",relUnpaid:true});
+        depAmtUSD,relAmtUSD,depUnpaid:(o.depositStatus||"unpaid")!=="paid",relUnpaid:true});
     // Single-amount PO (no deposit/release split) — treat as Release
     if(depAmtUSD<0.01&&relAmtUSD<0.01&&o.releaseStatus!=="paid"){
       const totUSD=toUSD(o.totalValue,o.currency);

@@ -968,11 +968,23 @@ export default {
               const orders = await getAllOrders(token, sheetId);
               const order = orders.find(o => o.id === oid);
               if (!order) continue;
-              const allocAmt = +(allocs[oid]) || +(body.amount) || 0;
-              const updates = {};
 
-              if (body.type === "Deposit" || body.type === "Full Amount") {
-                const newPaidAmt = (order.depositPaidAmt || 0) + allocAmt;
+              // Support per-stage allocations {deposit: X, release: Y} or legacy flat amount
+              const allocEntry = allocs[oid];
+              let depAlloc = 0, relAlloc = 0;
+              if (allocEntry && typeof allocEntry === "object" && !Array.isArray(allocEntry)) {
+                depAlloc = +(allocEntry.deposit) || 0;
+                relAlloc = +(allocEntry.release) || 0;
+              } else {
+                // Legacy flat format — use body.type to decide which stage
+                const flatAmt = +(allocEntry) || +(body.amount) || 0;
+                if (body.type === "Deposit" || body.type === "Full Amount") depAlloc = flatAmt;
+                if (body.type === "Release" || body.type === "Full Amount") relAlloc = flatAmt;
+              }
+
+              const updates = {};
+              if (depAlloc > 0.01) {
+                const newPaidAmt = (order.depositPaidAmt || 0) + depAlloc;
                 updates.depositPaidAmt = +newPaidAmt.toFixed(2);
                 updates.depositPaid = payDate;
                 const invoiceAmt = order.depositAmt || 0;
@@ -982,8 +994,8 @@ export default {
                   updates.depositStatus = "partial";
                 }
               }
-              if (body.type === "Release" || body.type === "Full Amount") {
-                const newPaidAmt = (order.releasePaidAmt || 0) + allocAmt;
+              if (relAlloc > 0.01) {
+                const newPaidAmt = (order.releasePaidAmt || 0) + relAlloc;
                 updates.releasePaidAmt = +newPaidAmt.toFixed(2);
                 updates.releasePaid = payDate;
                 const invoiceAmt = order.releaseAmt || 0;

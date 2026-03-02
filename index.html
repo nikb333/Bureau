@@ -244,7 +244,7 @@ function fuzzyMatchPO(input, orders, payments) {
   const extractNums=s=>(s||"").match(/\d+/g)||[];
   const q=clean(input),qNums=extractNums(input);
   const tokens=input.toLowerCase().split(/[\s\-_\.#,/\\()]+/).filter(t=>t.length>=2);
-  const paidMap={}; (payments||[]).forEach(p=>Object.entries(p.allocations||{}).forEach(([oid,amt])=>{paidMap[oid]=(paidMap[oid]||0)+amt;}));
+  const paidMap={}; (payments||[]).forEach(p=>Object.entries(p.allocations||{}).forEach(([oid,v])=>{const amt=(typeof v==="object"&&v!==null)?((+v.deposit||0)+(+v.release||0)):(+v||0);paidMap[oid]=(paidMap[oid]||0)+amt;}));
   return orders.map(o=>{
     let score=0,reason="";
     const rc=clean(o.ref),ic=clean(o.inv),sc=clean(o.supplier||"");
@@ -665,12 +665,16 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
       const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
       const allocs=d._allocations||[];
       const orderIds=[...new Set(allocs.map(a=>a.orderId))];
+      // Build per-stage allocations: {orderId: {deposit: X, release: Y}}
       const allocations={};
-      allocs.forEach(a=>{allocations[a.orderId]=(allocations[a.orderId]||0)+a.amount;});
+      allocs.forEach(a=>{
+        if(!allocations[a.orderId])allocations[a.orderId]={deposit:0,release:0};
+        allocations[a.orderId][a.lineType||"release"]+=a.amount;
+      });
 
-      // Payment type is always Deposit or Release — never Full Amount
+      // Payment type: Deposit if all deposits, Release if all releases, Mixed if both
       const lineTypes=[...new Set(allocs.map(a=>a.lineType).filter(Boolean))];
-      const paymentType=lineTypes[0]==="deposit"?"Deposit":"Release";
+      const paymentType=lineTypes.length>1?"Mixed":lineTypes[0]==="deposit"?"Deposit":"Release";
 
       await apiPost("/api/payments",{
         orderIds,
@@ -741,7 +745,11 @@ function RowUploadModal({order,onClose,onRefresh}){
       if(docType==="remittance"&&createPayment){
         const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
         const bankId=bm[payForm.bank]||BANKS.find(b=>b.entity===payForm.source)?.id||"us-chase";
-        const alloc={};alloc[order.id]=+(payForm.amount)||0;
+        const pmtAmt=+(payForm.amount)||0;
+        const alloc={};
+        if(payForm.type==="Full Amount"){alloc[order.id]={deposit:pmtAmt,release:0};}
+        else if(payForm.type==="Release"){alloc[order.id]={deposit:0,release:pmtAmt};}
+        else{alloc[order.id]={deposit:pmtAmt,release:0};}
         await apiPost("/api/payments",{
           orderIds:[order.id],allocations:alloc,
           bankAccount:bankId,sourceEntity:payForm.source||order.region||"US",
@@ -965,7 +973,7 @@ function IntercompanyTab({orders,payments}){
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
   const sortTxns=txns=>[...txns].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="date")return((a.date||"")>(b.date||"")?1:-1)*d;if(sort.key==="po")return((a.poRef||"")>(b.poRef||"")?1:-1)*d;if(sort.key==="from")return((a.sourceEntity||"")>(b.sourceEntity||"")?1:-1)*d;if(sort.key==="to")return((a.dest||"")>(b.dest||"")?1:-1)*d;if(sort.key==="amount")return((a.amount||0)-(b.amount||0))*d;return 0;});
-  const icMap={};payments.forEach(p=>{if(!p.sourceEntity||!p.orderIds)return;(p.orderIds||[]).forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o||!o.region||!p.sourceEntity||p.sourceEntity===o.region)return;const k=[p.sourceEntity,o.region].sort().join("-");if(!icMap[k])icMap[k]={e1:p.sourceEntity<o.region?p.sourceEntity:o.region,e2:p.sourceEntity<o.region?o.region:p.sourceEntity,net:0,txns:[]};const amt=(p.allocations||{})[oid]||p.amount;icMap[k].net+=amt*(p.sourceEntity<o.region?1:-1);icMap[k].txns.push({date:p.date,poRef:o.ref,sourceEntity:p.sourceEntity,dest:o.region,amount:amt});});});
+  const icMap={};payments.forEach(p=>{if(!p.sourceEntity||!p.orderIds)return;(p.orderIds||[]).forEach(oid=>{const o=orders.find(x=>x.id===oid);if(!o||!o.region||!p.sourceEntity||p.sourceEntity===o.region)return;const k=[p.sourceEntity,o.region].sort().join("-");if(!icMap[k])icMap[k]={e1:p.sourceEntity<o.region?p.sourceEntity:o.region,e2:p.sourceEntity<o.region?o.region:p.sourceEntity,net:0,txns:[]};const rawAmt=(p.allocations||{})[oid];const amt=(typeof rawAmt==="object"&&rawAmt!==null)?((+rawAmt.deposit||0)+(+rawAmt.release||0)):(+rawAmt||p.amount);icMap[k].net+=amt*(p.sourceEntity<o.region?1:-1);icMap[k].txns.push({date:p.date,poRef:o.ref,sourceEntity:p.sourceEntity,dest:o.region,amount:amt});});});
   const pairs=Object.values(icMap);const totalIC=pairs.reduce((s,p)=>s+Math.abs(p.net),0);
   return <>
     <div className="ph"><div><h2>Intercompany Clearing</h2><p className="ps">Auto-detected when payment source ≠ PO destination</p></div></div>

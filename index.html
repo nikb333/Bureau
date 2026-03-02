@@ -203,30 +203,72 @@ function expandOrdersToLines(orders) {
 // Fuzzy search over expanded deposit/release lines.
 function fuzzyMatchLines(input, lines) {
   if(!input||!input.trim()) return [];
-  const clean=s=>(s||"").replace(/[\s\-_\.#,/\\()]+/g,"").toLowerCase(), extractNums=s=>(s||"").match(/\d+/g)||[];
+  const clean=s=>(s||"").replace(/[\s\-_\.#,/\\()]+/g,"").toLowerCase();
+  const extractNums=s=>(s||"").match(/\d+/g)||[];
   const q=clean(input),qNums=extractNums(input);
+  const tokens=input.toLowerCase().split(/[\s\-_\.#,/\\()]+/).filter(t=>t.length>=2);
   return lines.map(l=>{
-    let score=0,reason="";const rc=clean(l.ref),ic=clean(l.inv);
+    let score=0,reason="";
+    const rc=clean(l.ref),ic=clean(l.inv),sc=clean(l.supplier||"");
     if(rc===q||ic===q){score=100;reason="Exact";}
     else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}
     else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}
-    else if(qNums.length>0){const an=[...extractNums(l.ref),...extractNums(l.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
+    else if(sc&&(sc.includes(q)||q.includes(sc))){score=78;reason="Supplier";}
+    // Token matching — any token in ref/inv/supplier
+    if(score===0&&tokens.length>0){
+      const best=tokens.reduce((b,t)=>{
+        if(rc.includes(t)||ic.includes(t))return Math.max(b,76);
+        if(sc.includes(t))return Math.max(b,72);
+        return b;
+      },0);
+      if(best>0){score=best;reason="Token";}
+    }
+    // Number matching — exact then substring
+    if(score===0&&qNums.length>0){
+      const an=[...extractNums(l.ref),...extractNums(l.inv)];
+      if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}
+      else{
+        const refInv=(l.ref||"")+(l.inv||"");
+        if(qNums.some(n=>n.length>=2&&refInv.includes(n))){score=73;reason="Partial#";}
+        else if(an.some(n=>n.length>=3&&qNums.some(qn=>n.includes(qn)&&qn.length>=2))){score=70;reason="Partial#";}
+      }
+    }
     return{...l,score,reason};
-  }).filter(l=>l.score>0).sort((a,b)=>b.score-a.score).slice(0,10);
+  }).filter(l=>l.score>0).sort((a,b)=>b.score-a.score).slice(0,15);
 }
 
 // Legacy fuzzyMatchPO kept for ReviewScreen PO reference matching (returns one result per order).
 function fuzzyMatchPO(input, orders, payments) {
   if (!input||!input.trim()) return [];
-  const clean=s=>(s||"").replace(/[\s\-_\.#,/\\()]+/g,"").toLowerCase(), extractNums=s=>(s||"").match(/\d+/g)||[];
+  const clean=s=>(s||"").replace(/[\s\-_\.#,/\\()]+/g,"").toLowerCase();
+  const extractNums=s=>(s||"").match(/\d+/g)||[];
   const q=clean(input),qNums=extractNums(input);
+  const tokens=input.toLowerCase().split(/[\s\-_\.#,/\\()]+/).filter(t=>t.length>=2);
   const paidMap={}; (payments||[]).forEach(p=>Object.entries(p.allocations||{}).forEach(([oid,amt])=>{paidMap[oid]=(paidMap[oid]||0)+amt;}));
   return orders.map(o=>{
-    let score=0,reason="";const rc=clean(o.ref),ic=clean(o.inv);
+    let score=0,reason="";
+    const rc=clean(o.ref),ic=clean(o.inv),sc=clean(o.supplier||"");
     if(rc===q||ic===q){score=100;reason="Exact";}
     else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}
     else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}
-    else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
+    else if(sc&&(sc.includes(q)||q.includes(sc))){score=78;reason="Supplier";}
+    if(score===0&&tokens.length>0){
+      const best=tokens.reduce((b,t)=>{
+        if(rc.includes(t)||ic.includes(t))return Math.max(b,76);
+        if(sc.includes(t))return Math.max(b,72);
+        return b;
+      },0);
+      if(best>0){score=best;reason="Token";}
+    }
+    if(score===0&&qNums.length>0){
+      const an=[...extractNums(o.ref),...extractNums(o.inv)];
+      if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}
+      else{
+        const refInv=(o.ref||"")+(o.inv||"");
+        if(qNums.some(n=>n.length>=2&&refInv.includes(n))){score=73;reason="Partial#";}
+        else if(an.some(n=>n.length>=3&&qNums.some(qn=>n.includes(qn)&&qn.length>=2))){score=70;reason="Partial#";}
+      }
+    }
     const depAmtUSD=toUSD(o.depositAmt,o.currency),relAmtUSD=toUSD(o.releaseAmt,o.currency);
     const depPaidUSD=toUSD(+(o.depositPaidAmt)||0,o.currency),relPaidUSD=toUSD(+(o.releasePaidAmt)||0,o.currency);
     const depUnpaid=o.depositStatus!=="paid",relUnpaid=o.releaseStatus!=="paid";

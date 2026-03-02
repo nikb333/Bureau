@@ -156,10 +156,6 @@ function hasExplicitReleaseLine(order){
 function effectiveReleaseAmt(order){
   const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
   if (rel > 0.01) return rel;
-  if (((order.releaseStatus||"").toLowerCase() || "unpaid") !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
-function effectiveReleaseAmt(order){
-  const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
-  if (rel > 0.01) return rel;
   if ((order.releaseStatus||"").toLowerCase() !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
   return 0;
 }

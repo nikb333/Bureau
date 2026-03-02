@@ -83,6 +83,23 @@ th.usd-col{background:rgba(37,99,235,.10)}td.usd-col{background:rgba(37,99,235,.
 (function(){
   const root = document.getElementById("root");
   let mounted = false;
+  let bootError = null;
+  window.__bureauMarkMounted = ()=>{ mounted = true; };
+
+  window.addEventListener("error", function(e){
+    // Keep error details for diagnostics, but don't immediately replace UI.
+    // Cross-origin/extension errors often report as generic "Script error.".
+    bootError = e && (e.message || "Runtime error");
+  });
+
+  setTimeout(function(){
+    if(!root || mounted || root.children.length>0) return;
+    const detail = bootError ? `<div style="font-size:13px;margin-top:6px;color:#b91c1c">${bootError}</div>` : "";
+    root.innerHTML = '<div style="padding:24px;font-family:DM Sans,Arial,sans-serif;color:#92400e">'
+      + '<h2 style="margin:0 0 8px">Loading issue detected</h2>'
+      + '<div style="font-size:13px">The app did not initialize. Please hard refresh (Ctrl+Shift+R) and disable ad/script blockers for this site.</div>'
+      + detail + '</div>';
+  }, 5000);
   const markMounted = ()=>{ mounted = true; };
   window.__bureauMarkMounted = markMounted;
   window.addEventListener("error", function(e){
@@ -798,6 +815,13 @@ function ordersToLineItems(orders){
     const relAmt=effectiveReleaseAmt(o);
     const hasDep=depAmt>0;
     const hasRel=relAmt>0||hasExplicitReleaseLine(o);
+    if(hasDep&&hasRel){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
+    }else if(hasDep){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+    }else if(hasRel){
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     if(hasDep&&hasRel){
       items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
       items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});

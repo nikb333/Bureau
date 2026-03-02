@@ -117,11 +117,21 @@ const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDa
 const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
 
 // API helpers
-async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
-async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error("API "+r.status+": "+(await r.text())); return r.json(); }
-async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error("API "+r.status); return r.json(); }
-async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error("API "+r.status+": "+(await r.text())); return r.json(); }
-async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error("Upload failed"); return r.json(); }
+async function parseApiError(r, fallback){
+  const raw = await r.text();
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    detail = parsed?.error || parsed?.message || raw;
+  } catch (_) {}
+  detail = (detail || "").trim();
+  return detail ? `${fallback} (${r.status}): ${detail}` : `${fallback} (${r.status})`;
+}
+async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
+async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error(await parseApiError(r,"Upload failed")); return r.json(); }
 
 // Fuzzy match existing payment for remittance upload
 function fuzzyMatchPayment(remittanceData, payments) {

@@ -115,6 +115,13 @@ const pct = v => (v * 100).toFixed(1) + "%";
 const getWeekStart = d => { const dt = new Date(d); const day = dt.getDay(); const diff = dt.getDate() - day + (day === 0 ? -6 : 1); dt.setDate(diff); dt.setHours(0,0,0,0); return dt; };
 const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDate(e.getDate() + 6); return `${s.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`; };
 const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
+const num = v => { const n = +(v||0); return Number.isFinite(n) ? n : 0; };
+function effectiveReleaseAmt(order){
+  const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
+  if (rel > 0.01) return rel;
+  if ((order.releaseStatus||"").toLowerCase() !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
+  return 0;
+}
 
 // API helpers
 async function parseApiError(r, fallback){
@@ -176,8 +183,8 @@ function fuzzyMatchPayment(remittanceData, payments) {
 function expandOrdersToLines(orders) {
   const lines=[];
   (orders||[]).forEach(o=>{
-    const depAmtUSD=toUSD(o.depositAmt,o.currency);
-    const relAmtUSD=toUSD(o.releaseAmt,o.currency);
+    const depAmtUSD=toUSD(num(o.depositAmt),o.currency);
+    const relAmtUSD=toUSD(effectiveReleaseAmt(o),o.currency);
     if(o.depositStatus!=="paid"&&depAmtUSD>0.01)
       lines.push({...o,lineId:o.id+"-dep",lineType:"deposit",lineAmtUSD:depAmtUSD,outstanding:depAmtUSD,hasBalance:true,
         depAmtUSD,relAmtUSD,depUnpaid:true,relUnpaid:o.releaseStatus!=="paid"});
@@ -221,7 +228,7 @@ function fuzzyMatchPO(input, orders, payments) {
     else if(rc.includes(q)||ic.includes(q)){score=85;reason="Contains";}
     else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}
     else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
-    const depAmtUSD=toUSD(o.depositAmt,o.currency),relAmtUSD=toUSD(o.releaseAmt,o.currency);
+    const depAmtUSD=toUSD(num(o.depositAmt),o.currency),relAmtUSD=toUSD(effectiveReleaseAmt(o),o.currency);
     const depUnpaid=o.depositStatus!=="paid",relUnpaid=o.releaseStatus!=="paid";
     const outstanding=(depUnpaid?depAmtUSD:0)+(relUnpaid?relAmtUSD:0);
     const bal=outstanding>0.01;
@@ -614,6 +621,8 @@ function RowUploadModal({order,onClose,onRefresh}){
   const[createPayment,setCreatePayment]=useState(!(order.depositStatus==="paid"&&order.releaseStatus==="paid"));
   const fRef=useRef();
   const pf=(k,v)=>setPayForm(p=>({...p,[k]:v}));
+  const depositDisplayAmt=num(order.depositAmt);
+  const releaseDisplayAmt=effectiveReleaseAmt(order);
   const selectedLinePaid=payForm.type==="Release"?order.releaseStatus==="paid":payForm.type==="Full Amount"?(order.depositStatus==="paid"&&order.releaseStatus==="paid"):order.depositStatus==="paid";
 
   const handleFile=async f=>{
@@ -673,6 +682,11 @@ function RowUploadModal({order,onClose,onRefresh}){
       {docType==="remittance"&&<div style={{marginBottom:16,border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden"}}>
         <div style={{padding:"8px 14px",background:"var(--s2)",borderBottom:"1px solid var(--bd)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>PO Invoice Summary — {order.ref}</div>
         <div style={{padding:"12px 14px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {depositDisplayAmt>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.depositStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.depositStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.depositStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Deposit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(depositDisplayAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(depositDisplayAmt).toLocaleString()} · {order.depositStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+          {releaseDisplayAmt>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.releaseStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.releaseStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.releaseStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Release</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(releaseDisplayAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(releaseDisplayAmt).toLocaleString()} · {order.releaseStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+        </div>
+      </div>}
+
           {(order.depositAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.depositStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.depositStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.depositStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Deposit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.depositAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.depositAmt).toLocaleString()} · {order.depositStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
           {(order.releaseAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.releaseStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.releaseStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.releaseStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Release</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.releaseAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.releaseAmt).toLocaleString()} · {order.releaseStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
         </div>
@@ -714,6 +728,7 @@ function RowUploadModal({order,onClose,onRefresh}){
             <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Bank</div><select className="ri" value={payForm.bank} onChange={e=>pf("bank",e.target.value)}><option value="">Auto</option>{BANKS.map(b=><option key={b.id} value={b.hint}>{b.label}</option>)}</select></div>
           </div>
           {+(payForm.amount)>0&&(()=>{
+            const tgt=payForm.type==="Deposit"?toUSD(depositDisplayAmt,order.currency):toUSD(releaseDisplayAmt,order.currency);
             const tgt=payForm.type==="Deposit"?toUSD(order.depositAmt||0,order.currency):toUSD(order.releaseAmt||0,order.currency);
             const amt=+(payForm.amount);
             const isExact=tgt>0&&Math.abs(amt-tgt)<0.02;
@@ -753,15 +768,17 @@ function RowUploadModal({order,onClose,onRefresh}){
 function ordersToLineItems(orders){
   const items=[];
   orders.forEach(o=>{
-    const hasDep=o.depositAmt>0;
-    const hasRel=o.releaseAmt>0;
+    const depAmt=num(o.depositAmt);
+    const relAmt=effectiveReleaseAmt(o);
+    const hasDep=depAmt>0;
+    const hasRel=relAmt>0;
     if(hasDep&&hasRel){
-      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
-      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     }else if(hasDep){
-      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
     }else if(hasRel){
-      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     }else{
       // Single-amount PO — treat as Release
       items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel"});
@@ -769,6 +786,7 @@ function ordersToLineItems(orders){
   });
   return items;
 }
+
 
 // Tabs
 function OrdersTab({orders,payments,onRefresh}){
@@ -860,7 +878,7 @@ function IntercompanyTab({orders,payments}){
 }
 
 function ForecastTab({orders}){
-  const weeks={};orders.forEach(o=>{const add=(d,a,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else if(new Date(d)<new Date())weeks[wk].over+=u;else weeks[wk].due+=u;weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,status:st,label,date:d});};add(o.depositDue,o.depositAmt,o.depositStatus,"Deposit");add(o.releaseDue,o.releaseAmt,o.releaseStatus,"Release");});
+  const weeks={};orders.forEach(o=>{const add=(d,a,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else if(new Date(d)<new Date())weeks[wk].over+=u;else weeks[wk].due+=u;weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,status:st,label,date:d});};add(o.depositDue,num(o.depositAmt),o.depositStatus,"Deposit");add(o.releaseDue,effectiveReleaseAmt(o),o.releaseStatus,"Release");});
   const sortedWeeks=Object.entries(weeks).sort(([a],[b])=>a.localeCompare(b));let cumul=0;
   const withCumul=sortedWeeks.map(([wk,d])=>{cumul+=d.total;return[wk,d,cumul];});
   const[expanded,setExpanded]=useState({});const toggle=wk=>setExpanded(p=>({...p,[wk]:!p[wk]}));

@@ -1140,13 +1140,25 @@ export default {
           ? { type: "document", source: { type: "base64", media_type: mediaType, data: body.data } }
           : { type: "image", source: { type: "base64", media_type: mediaType, data: body.data } };
 
-        const systemPrompt = `You are analysing a document for Bureau Booths, a company that ships booth/furniture containers from Chinese suppliers (Soundbox, Hecor, Dawon, Sunon) to AU, UK, US, and CA.
+        const systemPrompt = `You are analysing a document for Bureau Booths, a company that ships booth/furniture containers from Chinese suppliers to AU, UK, US, and CA.
+
+CRITICAL — Supplier detection: The supplier MUST be one of exactly these four: Soundbox, Hecor, Dawon, Sunon.
+Look for the vendor/seller/manufacturer name on the document. Common appearances:
+- "SoundBox" or "Soundbox Acoustic" or "Soundbox" → supplier: "Soundbox"
+- "Hecor" or "Hecor Display" → supplier: "Hecor"
+- "Dawon" or "Dawon Furniture" → supplier: "Dawon"
+- "Sunon" or "Sunon Furniture" → supplier: "Sunon"
+Also use invoice prefix hints: GB/US/CA/AU/E prefix = Soundbox, HA prefix = Hecor, BUR prefix = Dawon.
+Always set supplier to one of these four values — never leave it blank if the document mentions any of them.
+
+CRITICAL — Notes field: Set notes to ONLY the supplier name (e.g. "Soundbox" or "Hecor"). Do NOT include payment terms, shipping details, carrier info, or other generic text in notes.
+
 Determine the document type from: purchase_order, commercial_invoice, remittance, freight_invoice. Then extract data. Return ONLY JSON:
-If purchase_order: {"doc_type":"purchase_order","supplier":"","po_reference":"","invoice_number":"","po_date":"YYYY-MM-DD","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","po_date":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
+If purchase_order: {"doc_type":"purchase_order","supplier":"Soundbox|Hecor|Dawon|Sunon","po_reference":"","invoice_number":"","po_date":"YYYY-MM-DD","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"<supplier name only>","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","po_date":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
 If remittance: {"doc_type":"remittance","bank_account_hint":"AU-NAB|UK-HSBC|US-Chase|CA-RBC","source_entity":"AU|UK|US|CA","payment_date":"YYYY-MM-DD","amount":0,"currency":"USD","po_references":[""],"payment_type":"Deposit|Release|Full Amount","reference":"","notes":"","confidence":"high|medium|low","confidence_details":{"amount":"high|medium|low","payment_date":"high|medium|low","source_entity":"high|medium|low","po_references":"high|medium|low"}}
-If commercial_invoice: {"doc_type":"commercial_invoice","supplier":"","invoice_number":"","invoice_date":"","po_reference":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_amount":0,"notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
+If commercial_invoice: {"doc_type":"commercial_invoice","supplier":"Soundbox|Hecor|Dawon|Sunon","invoice_number":"","invoice_date":"","po_reference":"","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_amount":0,"notes":"<supplier name only>","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
 If freight_invoice: {"doc_type":"freight_invoice","invoice_number":"","tracking_number":"","total_amount":0,"currency":"AUD","destination_region":"AU|UK|US|CA","po_reference":"","origin":"","destination":"","notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
-Hints: GB prefix=UK, US=US, CA=CA, AU/E=AU. Invoice prefixes: GB=UK Soundbox, HA=Hecor, BUR=Dawon.`;
+Hints for destination_region: GB prefix=UK, US=US, CA=CA, AU/E=AU.`;
 
         const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",

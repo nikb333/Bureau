@@ -286,6 +286,81 @@ function EditOrderModal({order,onSave,onClose}){
   </div></div>;
 }
 
+// ── Accounting-style line match card ──
+function LineMatchCard({selectedLine,payAmt,remaining,partialAmt,setPartialAmt,onPayFull,onPayPartial,onCancel}){
+  const LineBadge=({type})=><span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:type==="deposit"?"rgba(59,130,246,.15)":"rgba(16,185,129,.15)",color:type==="deposit"?"#2563eb":"#059669",letterSpacing:".04em"}}>{type==="deposit"?"DEPOSIT":"RELEASE"}</span>;
+  const fullAmt=selectedLine.lineAmtUSD;
+  const applied=+(partialAmt)>0?+(partialAmt):Math.min(remaining,fullAmt);
+  const afterThis=fullAmt-applied;
+  const coveragePct=fullAmt>0?Math.min(applied/fullAmt,1):0;
+  const isExact=Math.abs(applied-fullAmt)<0.02;
+  const isOver=applied>fullAmt+0.01;
+  const isPartial=applied<fullAmt-0.01&&!isOver;
+  const barColor=isOver?"var(--rd)":isExact?"var(--gn)":"var(--ac)";
+
+  return <div style={{border:`2px solid ${isOver?"var(--rd)":isExact?"var(--gnbd)":"var(--bd2)"}`,borderRadius:"var(--r2)",marginBottom:16,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,.06)"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 16px",background:"var(--s2)",borderBottom:"1px solid var(--bd)"}}>
+      <RegionBadge region={selectedLine.region}/><LineBadge type={selectedLine.lineType}/>
+      <span style={{fontWeight:700,fontSize:14}}>{selectedLine.ref}</span>
+      <span style={{fontSize:12,color:"var(--tx2)"}}>{selectedLine.inv} · {selectedLine.supplier}</span>
+      <button onClick={onCancel} style={{marginLeft:"auto",background:"none",border:"none",color:"var(--tx3)",cursor:"pointer",fontSize:22,lineHeight:1,padding:"0 4px"}}>×</button>
+    </div>
+
+    <div style={{padding:"18px 20px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"2px 24px",marginBottom:14}}>
+        <span style={{fontSize:11,color:"var(--tx3)",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em",padding:"4px 0"}}>{selectedLine.lineType==="deposit"?"Deposit":"Release"} Invoice Total</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15,textAlign:"right",padding:"4px 0"}}>{usd(fullAmt)}</span>
+        <span style={{fontSize:12,color:"var(--tx3)",padding:"4px 0"}}>Previously paid</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:"var(--tx3)",textAlign:"right",padding:"4px 0"}}>{usd(0)}</span>
+        <div style={{gridColumn:"1/-1",borderTop:"2px solid var(--bd)",margin:"4px 0"}}/>
+        <span style={{fontSize:13,fontWeight:700,padding:"4px 0"}}>Outstanding Balance</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:16,color:"var(--am)",textAlign:"right",padding:"4px 0"}}>{usd(fullAmt)}</span>
+      </div>
+
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx3)",marginBottom:5}}><span style={{fontWeight:600}}>This remittance covers</span><span style={{fontWeight:700,color:barColor}}>{(coveragePct*100).toFixed(1)}%</span></div>
+        <div style={{height:10,background:"var(--s3)",borderRadius:5,overflow:"hidden",marginBottom:5}}><div style={{height:"100%",width:`${Math.min(coveragePct*100,100)}%`,background:barColor,borderRadius:5,transition:"width .35s ease"}}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx3)"}}>
+          <span>Applying: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:barColor}}>{usd(applied)}</span></span>
+          {isExact&&<span style={{fontWeight:700,color:"var(--gn)"}}>✓ Full payment</span>}
+          {isOver&&<span style={{fontWeight:700,color:"var(--rd)"}}>⚠ Exceeds balance by {usd(applied-fullAmt)}</span>}
+          {isPartial&&<span><span style={{color:"var(--am)",fontWeight:600}}>{usd(afterThis)} remains after</span></span>}
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"2px 24px",marginBottom:14,paddingTop:10,borderTop:"1px solid var(--bd)"}}>
+        <span style={{fontSize:12,color:"var(--ac)",fontWeight:600,padding:"3px 0"}}>This remittance</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:14,color:"var(--ac)",textAlign:"right",padding:"3px 0"}}>{usd(applied)}</span>
+        <span style={{fontSize:13,fontWeight:700,padding:"3px 0"}}>Balance after this payment</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15,textAlign:"right",padding:"3px 0",color:isExact?"var(--gn)":isOver?"var(--rd)":"var(--am)"}}>{usd(Math.max(afterThis,0))}</span>
+      </div>
+
+      <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+        <div style={{flex:1}}><div style={{fontSize:11,color:"var(--tx2)",marginBottom:4,fontWeight:600}}>Amount to apply from this remittance</div><input type="number" step="0.01" value={partialAmt} onChange={e=>setPartialAmt(e.target.value)} className="ri" style={{width:"100%",fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,borderColor:isOver?"var(--rd)":"var(--bd)"}} placeholder={usd(Math.min(remaining,fullAmt))}/></div>
+        <button onClick={onPayPartial} className="btn btn-primary" style={{padding:"9px 16px",fontSize:13}} disabled={!(+(partialAmt)>0)}>Apply Partial</button>
+        <button onClick={onPayFull} className="btn btn-primary" style={{padding:"9px 16px",fontSize:13,background:"var(--gn)"}}>Pay Full {usd(Math.min(remaining,fullAmt))}</button>
+      </div>
+      {isOver&&<div style={{marginTop:8,fontSize:11,fontWeight:600,background:"var(--rdb)",color:"var(--rd)",padding:"6px 10px",borderRadius:4}}>⚠ Amount exceeds the outstanding balance of {usd(fullAmt)}</div>}
+      {isExact&&+(partialAmt)>0&&<div style={{marginTop:8,fontSize:11,fontWeight:700,background:"var(--gnb)",color:"var(--gn)",padding:"6px 10px",borderRadius:4}}>✓ This exactly covers the {selectedLine.lineType}</div>}
+    </div>
+  </div>;
+}
+
+// ── Allocated card with mini progress bar ──
+function AllocCard({a,onRemove}){
+  const LineBadge=({type})=><span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:type==="deposit"?"rgba(59,130,246,.15)":"rgba(16,185,129,.15)",color:type==="deposit"?"#2563eb":"#059669",letterSpacing:".04em"}}>{type==="deposit"?"DEPOSIT":"RELEASE"}</span>;
+  const isPartial=a.amount<a.lineAmtUSD-0.01;
+  const coverPct=a.lineAmtUSD>0?Math.min(a.amount/a.lineAmtUSD,1):0;
+  const barColor=isPartial?"var(--am)":"var(--gn)";
+  return <div style={{borderRadius:"var(--r)",marginBottom:8,overflow:"hidden",border:`1px solid ${isPartial?"var(--ambd)":"var(--gnbd)"}`,background:isPartial?"linear-gradient(135deg,#fffbeb,#fef9e6)":"var(--gnb)"}}>
+    <div style={{padding:"12px 14px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><RegionBadge region={a.region}/><LineBadge type={a.lineType}/><span style={{fontWeight:700,fontSize:13}}>{a.ref}</span><span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span>{isPartial?<span style={{fontSize:10,fontWeight:700,color:"var(--am)",background:"rgba(217,119,6,.15)",padding:"2px 6px",borderRadius:4}}>PARTIAL</span>:<span style={{fontSize:10,fontWeight:700,color:"var(--gn)",background:"rgba(5,150,105,.15)",padding:"2px 6px",borderRadius:4}}>FULL ✓</span>}<button onClick={onRemove} style={{marginLeft:"auto",background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:20,padding:"0 4px",fontWeight:600}}>×</button></div>
+      <div style={{display:"flex",gap:16,fontSize:12,color:"var(--tx2)",marginBottom:6}}><span>Invoice: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:"var(--tx)"}}>{usd(a.lineAmtUSD)}</span></span><span>→ Applying: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:barColor}}>{usd(a.amount)}</span></span>{isPartial?<span>→ Remaining: <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:"var(--am)"}}>{usd(a.lineAmtUSD-a.amount)}</span></span>:<span style={{color:"var(--gn)",fontWeight:600}}>→ Fully covered ✓</span>}</div>
+      <div style={{height:6,background:"var(--s3)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(coverPct*100,100)}%`,background:barColor,borderRadius:3}}/></div>
+    </div>
+  </div>;
+}
+
 // RemittanceAllocationUI — allocation is always against deposit OR release, never total
 function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,orders,payments}){
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
@@ -365,40 +440,11 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,ord
         </div>)}
       </div>}
 
-      {selectedLine&&<div style={{padding:"16px 18px",background:"linear-gradient(135deg,#fffbeb,#fef3c7)",border:"2px solid var(--am)",borderRadius:"var(--r2)",marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <RegionBadge region={selectedLine.region}/>
-          <LineBadge type={selectedLine.lineType}/>
-          <span style={{fontWeight:700,fontSize:14}}>{selectedLine.ref}</span>
-          <span style={{fontSize:12,color:"var(--tx2)"}}>{selectedLine.inv} · {selectedLine.supplier}</span>
-        </div>
-        <div style={{fontSize:12,color:"var(--tx2)",marginBottom:12}}>
-          {selectedLine.lineType==="deposit"?"Deposit":"Release"} amount: <span className="mono" style={{fontWeight:700,color:"var(--tx)"}}>{usd(selectedLine.lineAmtUSD)}</span>
-          {Math.abs(selectedLine.lineAmtUSD-payAmt)<0.02&&<span style={{marginLeft:10,fontSize:11,fontWeight:700,color:"var(--gn)"}}>✓ Exact match</span>}
-        </div>
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <div style={{flex:1}}><div style={{fontSize:11,color:"var(--tx2)",marginBottom:4,fontWeight:600}}>Partial Amount (leave blank to pay full {selectedLine.lineType})</div><input type="number" step="0.01" value={partialAmt} onChange={e=>setPartialAmt(e.target.value)} className="ri" style={{width:"100%",fontFamily:"'JetBrains Mono',monospace"}} placeholder={usd(Math.min(remaining,selectedLine.lineAmtUSD))}/></div>
-          <button onClick={payPartial} className="btn btn-primary" style={{padding:"8px 14px",fontSize:12}}>Pay Partial</button>
-          <button onClick={payFull} className="btn btn-primary" style={{padding:"8px 14px",fontSize:12,background:"var(--gn)"}}>Pay Full ({usd(Math.min(remaining,selectedLine.lineAmtUSD))})</button>
-          <button onClick={cancelSelect} className="btn btn-ghost" style={{padding:"8px 12px",fontSize:12}}>Cancel</button>
-        </div>
-      </div>}
+      {selectedLine&&<LineMatchCard selectedLine={selectedLine} payAmt={payAmt} remaining={remaining} partialAmt={partialAmt} setPartialAmt={setPartialAmt} onPayFull={payFull} onPayPartial={payPartial} onCancel={cancelSelect}/>}
 
       {allocs.length>0&&<div style={{marginTop:16}}>
         <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:8}}>Allocated</div>
-        {allocs.map(a=>{const isPartial=a.amount<a.lineAmtUSD-0.01;return <div key={a.lineId} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:isPartial?"linear-gradient(135deg,#fffbeb,#fef9e6)":"var(--s2)",border:isPartial?"1px solid var(--am)":"1px solid var(--bd)",borderRadius:"var(--r)",marginBottom:8}}>
-          <div style={{flex:1}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-              <RegionBadge region={a.region}/>
-              <LineBadge type={a.lineType}/>
-              <span style={{fontWeight:700,fontSize:13}}>{a.ref}</span>
-              <span style={{fontSize:11,color:"var(--tx3)"}}>{a.supplier}</span>
-              {isPartial&&<span style={{fontSize:10,fontWeight:700,color:"var(--am)",background:"rgba(217,119,6,.15)",padding:"2px 6px",borderRadius:4}}>PARTIAL</span>}
-            </div>
-            <div style={{fontSize:11,color:"var(--tx2)"}}>Allocated: <span className="mono" style={{fontWeight:600}}>{usd(a.amount)}</span> of {usd(a.lineAmtUSD)} {a.lineType}</div>
-          </div>
-          <button onClick={()=>rmAlloc(a.lineId)} style={{background:"none",border:"none",color:"var(--rd)",cursor:"pointer",fontSize:20,padding:"4px 8px",fontWeight:600}} title="Remove">×</button>
-        </div>;})}
+        {allocs.map(a=><AllocCard key={a.lineId} a={a} onRemove={()=>rmAlloc(a.lineId)}/>)}
       </div>}
 
       {allocs.length===0&&!selectedLine&&!search&&<div style={{textAlign:"center",padding:32,color:"var(--tx3)",background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>Search a PO and select its deposit or release to allocate payment</div>}
@@ -613,6 +659,14 @@ function RowUploadModal({order,onClose,onRefresh}){
         </div>
       </div>
 
+      {docType==="remittance"&&<div style={{marginBottom:16,border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden"}}>
+        <div style={{padding:"8px 14px",background:"var(--s2)",borderBottom:"1px solid var(--bd)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>PO Invoice Summary — {order.ref}</div>
+        <div style={{padding:"12px 14px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {(order.depositAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.depositStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.depositStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.depositStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Deposit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.depositAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.depositAmt).toLocaleString()} · {order.depositStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+          {(order.releaseAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.releaseStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.releaseStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.releaseStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Release</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.releaseAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.releaseAmt).toLocaleString()} · {order.releaseStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+        </div>
+      </div>}
+
       {st==="pick"&&<>
         <div className="dropzone dz-compact" onClick={()=>fRef.current?.click()}>
           <div className="dz-ci"><span>📎</span><span>Drop file or click to select</span></div>
@@ -637,9 +691,31 @@ function RowUploadModal({order,onClose,onRefresh}){
             <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Source Entity</div><select className="ri" value={payForm.source} onChange={e=>pf("source",e.target.value)}>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></div>
             <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:3}}>Bank</div><select className="ri" value={payForm.bank} onChange={e=>pf("bank",e.target.value)}><option value="">Auto</option>{BANKS.map(b=><option key={b.id} value={b.hint}>{b.label}</option>)}</select></div>
           </div>
-          {payForm.amount>0&&<div style={{marginTop:10,padding:"8px 12px",background:"var(--acl)",borderRadius:"var(--r)",fontSize:12,color:"var(--ac)"}}>
-            Will record <strong>{payForm.type}</strong> payment of <strong className="mono">{usd(+(payForm.amount))}</strong> linked to <strong>{order.ref}</strong>
-          </div>}
+          {+(payForm.amount)>0&&(()=>{
+            const tgt=payForm.type==="Deposit"?toUSD(order.depositAmt||0,order.currency):toUSD(order.releaseAmt||0,order.currency);
+            const amt=+(payForm.amount);
+            const isExact=tgt>0&&Math.abs(amt-tgt)<0.02;
+            const isOver=amt>tgt+0.01;
+            const bar=isOver?"var(--rd)":isExact?"var(--gn)":"var(--ac)";
+            return <div style={{marginTop:10,border:`2px solid ${isOver?"var(--rd)":isExact?"var(--gnbd)":"var(--bd)"}`,borderRadius:"var(--r)",padding:"12px 14px",background:isOver?"var(--rdb)":isExact?"var(--gnb)":"var(--s2)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:"3px 16px",marginBottom:8}}>
+                <span style={{fontSize:11,color:"var(--tx3)",fontWeight:600}}>{payForm.type} Invoice Total</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,textAlign:"right"}}>{usd(tgt)}</span>
+                <span style={{fontSize:11,color:"var(--tx3)"}}>This payment</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,textAlign:"right",color:bar}}>{usd(amt)}</span>
+                <hr style={{gridColumn:"1/-1",border:"none",borderTop:"1px solid var(--bd)",margin:"3px 0"}}/>
+                <span style={{fontSize:12,fontWeight:700}}>Balance remaining</span>
+                <span style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,textAlign:"right",color:isExact?"var(--gn)":isOver?"var(--rd)":"var(--am)"}}>{usd(Math.max(tgt-amt,0))}</span>
+              </div>
+              <div style={{height:8,background:"var(--s3)",borderRadius:4,overflow:"hidden",marginBottom:4}}><div style={{height:"100%",width:`${tgt>0?Math.min(amt/tgt*100,100):0}%`,background:bar,borderRadius:4,transition:"width .3s"}}/></div>
+              <div style={{fontSize:11,color:"var(--tx3)",display:"flex",justifyContent:"space-between"}}>
+                <span>{tgt>0?(amt/tgt*100).toFixed(1):0}% covered</span>
+                {isExact&&<span style={{color:"var(--gn)",fontWeight:700}}>✓ Exact match</span>}
+                {!isExact&&!isOver&&tgt>0&&<span style={{color:"var(--am)",fontWeight:600}}>Partial — {usd(tgt-amt)} remains</span>}
+                {isOver&&<span style={{color:"var(--rd)",fontWeight:700}}>⚠ Exceeds by {usd(amt-tgt)}</span>}
+              </div>
+            </div>;
+          })()}
         </div>}
 
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>

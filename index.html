@@ -100,6 +100,16 @@ th.usd-col{background:rgba(37,99,235,.10)}td.usd-col{background:rgba(37,99,235,.
       + '<div style="font-size:13px">The app did not initialize. Please hard refresh (Ctrl+Shift+R) and disable ad/script blockers for this site.</div>'
       + detail + '</div>';
   }, 5000);
+  const markMounted = ()=>{ mounted = true; };
+  window.__bureauMarkMounted = markMounted;
+  window.addEventListener("error", function(e){
+    if(!root || mounted) return;
+    root.innerHTML = '<div style="padding:24px;font-family:DM Sans,Arial,sans-serif;color:#b91c1c"><h2 style="margin:0 0 8px">Bureau Ops failed to load</h2><div style="font-size:13px">'+(e.message||'Runtime error')+'</div></div>';
+  });
+  setTimeout(function(){
+    if(!root || mounted || root.children.length>0) return;
+    root.innerHTML = '<div style="padding:24px;font-family:DM Sans,Arial,sans-serif;color:#92400e"><h2 style="margin:0 0 8px">Loading issue detected</h2><div style="font-size:13px">The app script did not initialize. Please hard refresh (Ctrl+Shift+R).</div></div>';
+  }, 3000);
 })();
 </script>
 <script type="text/babel" data-type="module">
@@ -147,6 +157,10 @@ function effectiveReleaseAmt(order){
   const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
   if (rel > 0.01) return rel;
   if (((order.releaseStatus||"").toLowerCase() || "unpaid") !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
+function effectiveReleaseAmt(order){
+  const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
+  if (rel > 0.01) return rel;
+  if ((order.releaseStatus||"").toLowerCase() !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
   return 0;
 }
 
@@ -258,6 +272,7 @@ function fuzzyMatchPO(input, orders, payments) {
     else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
     const depAmtUSD=toUSD(num(o.depositAmt),o.currency),relAmtUSD=toUSD(effectiveReleaseAmt(o),o.currency);
     const depUnpaid=(o.depositStatus||"unpaid")!=="paid",relUnpaid=(o.releaseStatus||"unpaid")!=="paid";
+    const depUnpaid=o.depositStatus!=="paid",relUnpaid=o.releaseStatus!=="paid";
     const outstanding=(depUnpaid?depAmtUSD:0)+(relUnpaid?relAmtUSD:0);
     const bal=outstanding>0.01;
     if(score>0&&bal)score+=5;
@@ -521,8 +536,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
       if(d.po_date&&!d.deposit_due){d.deposit_due=d.po_date;const rd=new Date(d.po_date);rd.setDate(rd.getDate()+21);d.release_due=rd.toISOString().slice(0,10);}
       if(!d.destination_region&&d.source_entity)d.destination_region=d.source_entity;
     }else if(newType==="remittance"){
-      if(!d.amount&&d.total_value)d.amount=d.total_value;
-      if(!d.amount&&d.total_amount)d.amount=d.total_amount;
+      // Never auto-fill amount from total_value — remittances pay deposit OR release, not total
       if(!d.payment_date&&d.po_date)d.payment_date=d.po_date;
       if(!d.po_references){const ref=d.po_reference||"";d.po_references=[ref];}
       if(!d.source_entity&&d.destination_region)d.source_entity=d.destination_region;
@@ -575,10 +589,10 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
       <Row label="Amount" field="amount"><div className="ri-g"><input className="ri ri-n" type="number" step="0.01" value={ed.amount||0} onChange={e=>sf("amount",e.target.value)}/><select value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)} className="ri ri-sm">{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></div></Row>
       <Row label="Payment Date" field="payment_date"><input className="ri" type="date" value={ed.payment_date||""} onChange={e=>sf("payment_date",e.target.value)}/></Row>
       <Row label="Type" conf="high"><select value={ed.payment_type||"Deposit"} onChange={e=>sf("payment_type",e.target.value)} className="ri">{PAYMENT_TYPES.map(t=><option key={t}>{t}</option>)}</select></Row>
-      {(()=>{const payAmt=+(ed.amount)||0;const bestMatch=matches.length>0&&matches[0].score>=75?matches[0]:null;if(!bestMatch||payAmt<100)return null;const depMatch=bestMatch.depUnpaid&&Math.abs(payAmt-bestMatch.depAmtUSD)/bestMatch.depAmtUSD<0.15;const relMatch=bestMatch.relUnpaid&&Math.abs(payAmt-bestMatch.relAmtUSD)/bestMatch.relAmtUSD<0.15;const totMatch=Math.abs(payAmt-bestMatch.totalUSD)/bestMatch.totalUSD<0.15;if(depMatch||relMatch||totMatch){return <div style={{margin:"6px 22px 10px 66px",padding:"10px 14px",background:"linear-gradient(135deg,#eff4ff,#e0eaff)",border:"1px solid var(--ac)",borderRadius:"var(--r)",fontSize:12,color:"var(--ac)",fontWeight:600}}><span style={{marginRight:6}}>💡</span>{depMatch&&`Suggestion: Select "Deposit" — amount matches ${usd(bestMatch.depAmtUSD)}`}{relMatch&&`Suggestion: Select "Release" — amount matches ${usd(bestMatch.relAmtUSD)}`}</div>;}return null;})()}
+      {(()=>{const payAmt=+(ed.amount)||0;const bestMatch=matches.length>0&&matches[0].score>=75?matches[0]:null;if(!bestMatch||payAmt<100)return null;const depMatch=bestMatch.depUnpaid&&bestMatch.depAmtUSD>0.01&&Math.abs(payAmt-bestMatch.depAmtUSD)/bestMatch.depAmtUSD<0.15;const relMatch=bestMatch.relUnpaid&&bestMatch.relAmtUSD>0.01&&Math.abs(payAmt-bestMatch.relAmtUSD)/bestMatch.relAmtUSD<0.15;if(depMatch||relMatch){return <div style={{margin:"6px 22px 10px 66px",padding:"10px 14px",background:"linear-gradient(135deg,#eff4ff,#e0eaff)",border:"1px solid var(--ac)",borderRadius:"var(--r)",fontSize:12,color:"var(--ac)",fontWeight:600}}><span style={{marginRight:6}}>💡</span>{depMatch&&`Suggestion: Select "Deposit" — amount matches ${usd(bestMatch.depAmtUSD)}`}{!depMatch&&relMatch&&`Suggestion: Select "Release" — amount matches ${usd(bestMatch.relAmtUSD)}`}</div>;}return null;})()}
       <div className="rs-t">Match to Purchase Order</div>
       <Row label="PO Reference" field="po_references"><input className="ri" value={refInput} onChange={e=>sf("po_references",[e.target.value])} placeholder="Type PO# to search..."/></Row>
-      {refInput.trim()&&matches.length>0&&<div className="mr">{matches.map(m=><div key={m.id} className={`mr-row ${m.score>=85?"mr-best":""}`} onClick={()=>sf("po_references",[m.ref])}><div className="mr-sw">{m.score>=85?<span className="ci ci-h">✓</span>:<span className="ci ci-m">⚠</span>}</div><div className="mr-info"><div className="mr-ref">{m.ref}</div><div className="mr-det">{m.inv} · {m.supplier} · <RegionBadge region={m.region}/></div><div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>{m.depUnpaid&&<span style={{color:"var(--am)",fontWeight:600}}>Deposit {usd(m.depAmtUSD)} unpaid</span>}{m.depUnpaid&&m.relUnpaid&&" · "}{m.relUnpaid&&<span style={{color:"var(--am)",fontWeight:600}}>Release {usd(m.relAmtUSD)} unpaid</span>}{!m.depUnpaid&&!m.relUnpaid&&<span style={{color:"var(--gn)"}}>Fully paid</span>}</div></div><div className="mr-amt"><div className="mr-tot">{usd(m.totalUSD)}</div>{m.hasBalance?<div className="mr-out">Bal: {usd(m.outstanding)}</div>:<div className="mr-fp">Fully paid</div>}</div><div className="mr-pct">{m.score}%</div></div>)}</div>}
+      {refInput.trim()&&matches.length>0&&<div className="mr">{matches.map(m=>{const payAmt=+(ed.amount)||0;const depClose=m.depUnpaid&&m.depAmtUSD>0.01&&payAmt>0&&Math.abs(payAmt-m.depAmtUSD)/m.depAmtUSD<0.15;const relClose=m.relUnpaid&&m.relAmtUSD>0.01&&payAmt>0&&Math.abs(payAmt-m.relAmtUSD)/m.relAmtUSD<0.15;return <div key={m.id} className={`mr-row ${m.score>=85?"mr-best":""}`} onClick={()=>sf("po_references",[m.ref])}><div className="mr-sw">{m.score>=85?<span className="ci ci-h">✓</span>:<span className="ci ci-m">⚠</span>}</div><div className="mr-info"><div className="mr-ref">{m.ref}</div><div className="mr-det">{m.inv} · {m.supplier} · <RegionBadge region={m.region}/></div><div style={{fontSize:10,color:"var(--tx3)",marginTop:3}}>{m.depUnpaid&&m.depAmtUSD>0.01&&<span style={{color:depClose?"var(--gn)":"var(--am)",fontWeight:600}}>Deposit {usd(m.depAmtUSD)}{depClose?" ✓":""}</span>}{m.depUnpaid&&m.depAmtUSD>0.01&&m.relUnpaid&&m.relAmtUSD>0.01&&" · "}{m.relUnpaid&&m.relAmtUSD>0.01&&<span style={{color:relClose?"var(--gn)":"var(--am)",fontWeight:600}}>Release {usd(m.relAmtUSD)}{relClose?" ✓":""}</span>}{!m.depUnpaid&&!m.relUnpaid&&<span style={{color:"var(--gn)"}}>Fully paid</span>}</div></div><div className="mr-amt">{m.hasBalance?<div className="mr-out" style={{fontWeight:700,fontSize:13}}>Owed: {usd(m.outstanding)}</div>:<div className="mr-fp">Fully paid</div>}</div><div className="mr-pct">{m.score}%</div></div>})}</div>}
       <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)} placeholder="Optional"/></Row>
     </>}
 
@@ -647,10 +661,12 @@ function RowUploadModal({order,onClose,onRefresh}){
   const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState("document");
   const[parsing,setParsing]=useState(false);const[saving,setSaving]=useState(false);const[error,setError]=useState(null);
   const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:""});
+  const[createPayment,setCreatePayment]=useState(!(order.depositStatus==="paid"&&order.releaseStatus==="paid"));
   const fRef=useRef();
   const pf=(k,v)=>setPayForm(p=>({...p,[k]:v}));
   const depositDisplayAmt=num(order.depositAmt);
   const releaseDisplayAmt=effectiveReleaseAmt(order);
+  const selectedLinePaid=payForm.type==="Release"?order.releaseStatus==="paid":payForm.type==="Full Amount"?(order.depositStatus==="paid"&&order.releaseStatus==="paid"):order.depositStatus==="paid";
 
   const handleFile=async f=>{
     setFile(f);
@@ -671,8 +687,8 @@ function RowUploadModal({order,onClose,onRefresh}){
       // Always upload file to this PO's Drive folder
       if(file&&order.ref)await apiUploadFile(file,order.ref);
 
-      // If remittance, also record the payment
-      if(docType==="remittance"){
+      // If remittance, optionally record payment (supporting-doc-only mode avoids duplicate entries)
+      if(docType==="remittance"&&createPayment){
         const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
         const bankId=bm[payForm.bank]||BANKS.find(b=>b.entity===payForm.source)?.id||"us-chase";
         const alloc={};alloc[order.id]=+(payForm.amount)||0;
@@ -714,6 +730,22 @@ function RowUploadModal({order,onClose,onRefresh}){
         </div>
       </div>}
 
+          {(order.depositAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.depositStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.depositStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.depositStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Deposit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.depositAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.depositAmt).toLocaleString()} · {order.depositStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+          {(order.releaseAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.releaseStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.releaseStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.releaseStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Release</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.releaseAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.releaseAmt).toLocaleString()} · {order.releaseStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
+        </div>
+      </div>}
+
+      {docType==="remittance"&&<div style={{marginBottom:16,padding:"11px 12px",border:"1px solid var(--bd)",borderRadius:"var(--r)",background:createPayment?"var(--s2)":"#f8fafc"}}>
+        <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+          <input type="checkbox" checked={createPayment} onChange={e=>setCreatePayment(e.target.checked)} style={{marginTop:2}}/>
+          <div>
+            <div style={{fontSize:12,fontWeight:700}}>Create payment ledger entry from this remittance</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>Turn this off to upload as supporting evidence only (no new payment added).</div>
+          </div>
+        </label>
+        {selectedLinePaid&&createPayment&&<div style={{marginTop:8,fontSize:11,fontWeight:600,color:"var(--am)",background:"var(--amb)",border:"1px solid var(--ambd)",padding:"6px 8px",borderRadius:6}}>⚠ This PO line is already marked paid. Consider disabling payment creation to avoid duplicate allocation.</div>}
+      </div>}
+
       {st==="pick"&&<>
         <div className="dropzone dz-compact" onClick={()=>fRef.current?.click()}>
           <div className="dz-ci"><span>📎</span><span>Drop file or click to select</span></div>
@@ -740,6 +772,7 @@ function RowUploadModal({order,onClose,onRefresh}){
           </div>
           {+(payForm.amount)>0&&(()=>{
             const tgt=payForm.type==="Deposit"?toUSD(depositDisplayAmt,order.currency):toUSD(releaseDisplayAmt,order.currency);
+            const tgt=payForm.type==="Deposit"?toUSD(order.depositAmt||0,order.currency):toUSD(order.releaseAmt||0,order.currency);
             const amt=+(payForm.amount);
             const isExact=tgt>0&&Math.abs(amt-tgt)<0.02;
             const isOver=amt>tgt+0.01;
@@ -767,7 +800,7 @@ function RowUploadModal({order,onClose,onRefresh}){
 
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
           <button className="btn btn-ghost" onClick={()=>{setSt("pick");setFile(null);}}>Back</button>
-          <button className="btn btn-primary" onClick={upload} disabled={saving}>{saving?<><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/>Saving...</>:docType==="remittance"?"Upload & Record Payment":"Upload to Drive"}</button>
+          <button className="btn btn-primary" onClick={upload} disabled={saving}>{saving?<><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/>Saving...</>:docType==="remittance"?(createPayment?"Upload & Record Payment":"Upload Supporting Document"):"Upload to Drive"}</button>
         </div>
       </>}
     </div>
@@ -789,6 +822,21 @@ function ordersToLineItems(orders){
       items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
     }else if(hasRel){
       items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
+    if(hasDep&&hasRel){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
+    }else if(hasDep){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+    }else if(hasRel){
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
+    const hasRel=relAmt>0;
+    if(hasDep&&hasRel){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
+    }else if(hasDep){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+    }else if(hasRel){
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     }else{
       // Single-amount PO — treat as Release
       items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel"});

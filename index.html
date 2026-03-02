@@ -611,8 +611,10 @@ function RowUploadModal({order,onClose,onRefresh}){
   const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState("document");
   const[parsing,setParsing]=useState(false);const[saving,setSaving]=useState(false);const[error,setError]=useState(null);
   const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:""});
+  const[createPayment,setCreatePayment]=useState(!(order.depositStatus==="paid"&&order.releaseStatus==="paid"));
   const fRef=useRef();
   const pf=(k,v)=>setPayForm(p=>({...p,[k]:v}));
+  const selectedLinePaid=payForm.type==="Release"?order.releaseStatus==="paid":payForm.type==="Full Amount"?(order.depositStatus==="paid"&&order.releaseStatus==="paid"):order.depositStatus==="paid";
 
   const handleFile=async f=>{
     setFile(f);
@@ -633,8 +635,8 @@ function RowUploadModal({order,onClose,onRefresh}){
       // Always upload file to this PO's Drive folder
       if(file&&order.ref)await apiUploadFile(file,order.ref);
 
-      // If remittance, also record the payment
-      if(docType==="remittance"){
+      // If remittance, optionally record payment (supporting-doc-only mode avoids duplicate entries)
+      if(docType==="remittance"&&createPayment){
         const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
         const bankId=bm[payForm.bank]||BANKS.find(b=>b.entity===payForm.source)?.id||"us-chase";
         const alloc={};alloc[order.id]=+(payForm.amount)||0;
@@ -674,6 +676,17 @@ function RowUploadModal({order,onClose,onRefresh}){
           {(order.depositAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.depositStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.depositStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.depositStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Deposit</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.depositAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.depositAmt).toLocaleString()} · {order.depositStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
           {(order.releaseAmt||0)>0&&<div style={{padding:"10px 12px",borderRadius:"var(--r)",background:order.releaseStatus==="paid"?"var(--gnb)":"var(--amb)",border:`1px solid ${order.releaseStatus==="paid"?"var(--gnbd)":"var(--ambd)"}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",color:order.releaseStatus==="paid"?"var(--gn)":"var(--am)",marginBottom:4}}>Release</div><div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:15}}>{usd(toUSD(order.releaseAmt,order.currency))}</div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{order.currency} {(order.releaseAmt).toLocaleString()} · {order.releaseStatus==="paid"?"✓ Paid":"Unpaid"}</div></div>}
         </div>
+      </div>}
+
+      {docType==="remittance"&&<div style={{marginBottom:16,padding:"11px 12px",border:"1px solid var(--bd)",borderRadius:"var(--r)",background:createPayment?"var(--s2)":"#f8fafc"}}>
+        <label style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+          <input type="checkbox" checked={createPayment} onChange={e=>setCreatePayment(e.target.checked)} style={{marginTop:2}}/>
+          <div>
+            <div style={{fontSize:12,fontWeight:700}}>Create payment ledger entry from this remittance</div>
+            <div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>Turn this off to upload as supporting evidence only (no new payment added).</div>
+          </div>
+        </label>
+        {selectedLinePaid&&createPayment&&<div style={{marginTop:8,fontSize:11,fontWeight:600,color:"var(--am)",background:"var(--amb)",border:"1px solid var(--ambd)",padding:"6px 8px",borderRadius:6}}>⚠ This PO line is already marked paid. Consider disabling payment creation to avoid duplicate allocation.</div>}
       </div>}
 
       {st==="pick"&&<>
@@ -729,7 +742,7 @@ function RowUploadModal({order,onClose,onRefresh}){
 
         <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
           <button className="btn btn-ghost" onClick={()=>{setSt("pick");setFile(null);}}>Back</button>
-          <button className="btn btn-primary" onClick={upload} disabled={saving}>{saving?<><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/>Saving...</>:docType==="remittance"?"Upload & Record Payment":"Upload to Drive"}</button>
+          <button className="btn btn-primary" onClick={upload} disabled={saving}>{saving?<><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/>Saving...</>:docType==="remittance"?(createPayment?"Upload & Record Payment":"Upload Supporting Document"):"Upload to Drive"}</button>
         </div>
       </>}
     </div>

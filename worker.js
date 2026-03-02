@@ -102,6 +102,7 @@ async function importPrivateKey(pem) {
 //   H:DepositAmt  I:DepositStatus  J:DepositDue  K:DepositPaid
 //   L:ReleaseAmt  M:ReleaseStatus  N:ReleaseDue  O:ReleasePaid
 //   P:Notes  Q:DriveFolderID  R:Created  S:Updated  T:PODate
+//   U:DepositPaidAmt  V:ReleasePaidAmt
 //
 // Tab "Payments" — one row per payment:
 //   A:ID  B:BankAccount  C:SourceEntity  D:Amount  E:Currency
@@ -114,7 +115,8 @@ const ORDER_HEADERS = [
   "ID", "Region", "Ref", "Invoice", "Supplier", "Currency", "Total Value",
   "Deposit Amt", "Deposit Status", "Deposit Due", "Deposit Paid",
   "Release Amt", "Release Status", "Release Due", "Release Paid",
-  "Notes", "Drive Folder ID", "Created", "Updated", "PO Date"
+  "Notes", "Drive Folder ID", "Created", "Updated", "PO Date",
+  "Deposit Paid Amt", "Release Paid Amt"
 ];
 
 const PAYMENT_HEADERS = [
@@ -153,7 +155,7 @@ async function ensureSheetStructure(token, sheetId) {
 // --- Orders CRUD ---
 
 async function getAllOrders(token, sheetId) {
-  const rows = await readRange(token, sheetId, "Orders", "A2:T5000");
+  const rows = await readRange(token, sheetId, "Orders", "A2:V5000");
   return rows.filter(r => r[0]).map(rowToOrder);
 }
 
@@ -170,16 +172,19 @@ async function addOrder(token, sheetId, order) {
     relAmt, order.releaseStatus || "unpaid", order.releaseDue || "", order.releasePaid || "",
     order.notes || "", order.driveFolderId || "", order.created || now, now,
     order.poDate || "",
+    0, 0,
   ];
   await appendRows(token, sheetId, "Orders", [row]);
   return rowToOrder(row);
 }
 
 async function updateOrder(token, sheetId, orderId, updates) {
-  const rows = await readRange(token, sheetId, "Orders", "A2:T5000");
+  const rows = await readRange(token, sheetId, "Orders", "A2:V5000");
   const idx = rows.findIndex(r => r[0] === orderId);
   if (idx === -1) throw new Error(`Order not found: ${orderId}`);
   const row = rows[idx];
+  // Ensure columns U/V exist (backfill for pre-existing rows)
+  while (row.length < 22) row.push("");
   const sheetRow = idx + 2;
 
   if (updates.region !== undefined) row[1] = updates.region;
@@ -200,9 +205,11 @@ async function updateOrder(token, sheetId, orderId, updates) {
   if (updates.notes !== undefined) row[15] = updates.notes;
   if (updates.driveFolderId !== undefined) row[16] = updates.driveFolderId;
   if (updates.poDate !== undefined) row[19] = updates.poDate;
+  if (updates.depositPaidAmt !== undefined) row[20] = updates.depositPaidAmt;
+  if (updates.releasePaidAmt !== undefined) row[21] = updates.releasePaidAmt;
   row[18] = new Date().toISOString().slice(0, 19);
 
-  await writeRange(token, sheetId, "Orders", `A${sheetRow}:T${sheetRow}`, [row]);
+  await writeRange(token, sheetId, "Orders", `A${sheetRow}:V${sheetRow}`, [row]);
   return rowToOrder(row);
 }
 
@@ -245,6 +252,7 @@ function rowToOrder(row) {
     notes: row[15] || "", driveFolderId: row[16] || "",
     created: row[17] || "", updated: row[18] || "",
     poDate: row[19] || "",
+    depositPaidAmt: num(row[20]), releasePaidAmt: num(row[21]),
   };
 }
 
@@ -921,15 +929,37 @@ export default {
         const created = await addPayment(token, sheetId, payment);
 
         if (body.orderIds?.length) {
+          const allocs = body.allocations || {};
+          const payDate = body.date || new Date().toISOString().slice(0, 10);
           for (const oid of body.orderIds) {
             try {
+              const orders = await getAllOrders(token, sheetId);
+              const order = orders.find(o => o.id === oid);
+              if (!order) continue;
+              const allocAmt = +(allocs[oid]) || +(body.amount) || 0;
               const updates = {};
+
               if (body.type === "Deposit" || body.type === "Full Amount") {
-                updates.depositStatus = "paid";
-                updates.depositPaid = body.date || new Date().toISOString().slice(0, 10);
-              } else if (body.type === "Release") {
-                updates.releaseStatus = "paid";
-                updates.releasePaid = body.date || new Date().toISOString().slice(0, 10);
+                const newPaidAmt = (order.depositPaidAmt || 0) + allocAmt;
+                updates.depositPaidAmt = +newPaidAmt.toFixed(2);
+                updates.depositPaid = payDate;
+                const invoiceAmt = order.depositAmt || 0;
+                if (invoiceAmt > 0 && newPaidAmt >= invoiceAmt - 0.01) {
+                  updates.depositStatus = "paid";
+                } else if (newPaidAmt > 0.01) {
+                  updates.depositStatus = "partial";
+                }
+              }
+              if (body.type === "Release" || body.type === "Full Amount") {
+                const newPaidAmt = (order.releasePaidAmt || 0) + allocAmt;
+                updates.releasePaidAmt = +newPaidAmt.toFixed(2);
+                updates.releasePaid = payDate;
+                const invoiceAmt = order.releaseAmt || 0;
+                if (invoiceAmt > 0 && newPaidAmt >= invoiceAmt - 0.01) {
+                  updates.releaseStatus = "paid";
+                } else if (newPaidAmt > 0.01) {
+                  updates.releaseStatus = "partial";
+                }
               }
               await updateOrder(token, sheetId, oid, updates);
             } catch (e) {
@@ -992,6 +1022,10 @@ export default {
           const file = formData.get("file");
           const folderId = formData.get("folderId");
           const poRef = formData.get("poRef");
+          const docType = formData.get("docType") || "";
+          const docDate = formData.get("docDate") || "";
+          const entity = formData.get("entity") || "";
+          const bankLabel = formData.get("bankLabel") || "";
           if (!file) return err("Missing file", 400, origin);
 
           let targetFolderId = folderId;
@@ -1014,9 +1048,35 @@ export default {
           }
           if (!targetFolderId) return err("Missing folderId or poRef", 400, origin);
 
+          // Smart file naming: build formatted name from metadata
+          const ext = (file.name || "").includes(".") ? "." + file.name.split(".").pop() : "";
+          let uploadName = file.name;
+          if (poRef && docType) {
+            const typeLabels = {
+              purchase_order: "Purchase Order",
+              commercial_invoice: "Commercial Invoice",
+              remittance: "Remittance",
+              freight_invoice: "Freight Invoice",
+            };
+            const typeLabel = typeLabels[docType] || "";
+            const datePart = docDate || new Date().toISOString().slice(0, 10);
+            if (docType === "remittance") {
+              // e.g. "PO-193 CA Remittance UK-HSBC 2026-03-02.pdf"
+              const entityPart = entity ? ` ${entity}` : "";
+              const bankPart = bankLabel ? ` ${bankLabel}` : "";
+              uploadName = `${poRef}${entityPart} ${typeLabel}${bankPart} ${datePart}${ext}`;
+            } else if (typeLabel) {
+              // e.g. "PO-193 Purchase Order 2026-03-02.pdf"
+              uploadName = `${poRef} ${typeLabel} ${datePart}${ext}`;
+            } else {
+              // Generic document — just PO ref + date
+              uploadName = `${poRef} ${datePart}${ext}`;
+            }
+          }
+
           const result = await driveUploadFile(token, {
             folderId: targetFolderId,
-            fileName: file.name,
+            fileName: uploadName,
             mimeType: file.type || "application/octet-stream",
             body: await file.arrayBuffer(),
           });

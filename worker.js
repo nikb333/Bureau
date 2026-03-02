@@ -618,7 +618,7 @@ async function getParentFolderId(token) {
   const q = encodeURIComponent(
     "name = 'Supplier purchase orders' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
   );
-  const res = await fetch(`${DRIVE_BASE}/files?q=${q}&fields=files(id,name)&pageSize=5`, {
+  const res = await fetch(`${DRIVE_BASE}/files?q=${q}&fields=files(id,name)&pageSize=5&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`Drive search failed: ${await res.text()}`);
@@ -637,7 +637,7 @@ async function getSupplierFolders(token) {
     `'${pid}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
   );
   const res = await fetch(
-    `${DRIVE_BASE}/files?q=${q}&fields=files(id,name)&pageSize=50`,
+    `${DRIVE_BASE}/files?q=${q}&fields=files(id,name)&pageSize=50&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!res.ok) throw new Error(`Drive list suppliers failed: ${await res.text()}`);
@@ -655,7 +655,7 @@ async function driveListFolders(token) {
       `'${supplierId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
     );
     const res = await fetch(
-      `${DRIVE_BASE}/files?q=${q}&fields=files(id,name,webViewLink,createdTime)&pageSize=200&orderBy=name`,
+      `${DRIVE_BASE}/files?q=${q}&fields=files(id,name,webViewLink,createdTime)&pageSize=200&orderBy=name&supportsAllDrives=true&includeItemsFromAllDrives=true`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) continue;
@@ -680,7 +680,7 @@ async function driveCreateFolder(token, folderName, supplier) {
 
     if (!targetParent) {
       const pid = await getParentFolderId(token);
-      const newRes = await fetch(`${DRIVE_BASE}/files?fields=id,name,webViewLink`, {
+      const newRes = await fetch(`${DRIVE_BASE}/files?fields=id,name,webViewLink&supportsAllDrives=true`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -699,7 +699,7 @@ async function driveCreateFolder(token, folderName, supplier) {
 
   if (!targetParent) targetParent = await getParentFolderId(token);
 
-  const res = await fetch(`${DRIVE_BASE}/files?fields=id,name,webViewLink`, {
+  const res = await fetch(`${DRIVE_BASE}/files?fields=id,name,webViewLink&supportsAllDrives=true`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -719,7 +719,7 @@ async function driveListFiles(token, folderId) {
   const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
   const fields = "files(id,name,mimeType,webViewLink,webContentLink,size,createdTime)";
   const res = await fetch(
-    `${DRIVE_BASE}/files?q=${q}&fields=${fields}&pageSize=100&orderBy=name`,
+    `${DRIVE_BASE}/files?q=${q}&fields=${fields}&pageSize=100&orderBy=name&supportsAllDrives=true&includeItemsFromAllDrives=true`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!res.ok) throw new Error(`Drive list files failed: ${await res.text()}`);
@@ -741,7 +741,7 @@ async function driveUploadFile(token, { folderId, fileName, mimeType, body }) {
     `\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\nContent-Transfer-Encoding: base64\r\n\r\n${b64}` +
     `\r\n--${boundary}--`;
 
-  const res = await fetch(`${UPLOAD_BASE}/files?uploadType=multipart&fields=id,name,webViewLink`, {
+  const res = await fetch(`${UPLOAD_BASE}/files?uploadType=multipart&fields=id,name,webViewLink&supportsAllDrives=true`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,

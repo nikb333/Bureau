@@ -131,7 +131,7 @@ async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw n
 async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
 async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
 async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
-async function apiUploadFile(file, poRef) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error(await parseApiError(r,"Upload failed")); return r.json(); }
+async function apiUploadFile(file, poRef, meta) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); if(meta){if(meta.docType)f.append("docType",meta.docType);if(meta.docDate)f.append("docDate",meta.docDate);if(meta.entity)f.append("entity",meta.entity);if(meta.bankLabel)f.append("bankLabel",meta.bankLabel);} const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error(await parseApiError(r,"Upload failed")); return r.json(); }
 
 // Fuzzy match existing payment for remittance upload
 function fuzzyMatchPayment(remittanceData, payments) {
@@ -178,16 +178,22 @@ function expandOrdersToLines(orders) {
   (orders||[]).forEach(o=>{
     const depAmtUSD=toUSD(o.depositAmt,o.currency);
     const relAmtUSD=toUSD(o.releaseAmt,o.currency);
-    if(o.depositStatus!=="paid"&&depAmtUSD>0.01)
-      lines.push({...o,lineId:o.id+"-dep",lineType:"deposit",lineAmtUSD:depAmtUSD,outstanding:depAmtUSD,hasBalance:true,
+    const depPaidUSD=toUSD(+(o.depositPaidAmt)||0,o.currency);
+    const relPaidUSD=toUSD(+(o.releasePaidAmt)||0,o.currency);
+    const depOutstanding=Math.max(depAmtUSD-depPaidUSD,0);
+    const relOutstanding=Math.max(relAmtUSD-relPaidUSD,0);
+    if(o.depositStatus!=="paid"&&depOutstanding>0.01)
+      lines.push({...o,lineId:o.id+"-dep",lineType:"deposit",lineAmtUSD:depAmtUSD,outstanding:depOutstanding,hasBalance:true,
         depAmtUSD,relAmtUSD,depUnpaid:true,relUnpaid:o.releaseStatus!=="paid"});
-    if(o.releaseStatus!=="paid"&&relAmtUSD>0.01)
-      lines.push({...o,lineId:o.id+"-rel",lineType:"release",lineAmtUSD:relAmtUSD,outstanding:relAmtUSD,hasBalance:true,
+    if(o.releaseStatus!=="paid"&&relOutstanding>0.01)
+      lines.push({...o,lineId:o.id+"-rel",lineType:"release",lineAmtUSD:relAmtUSD,outstanding:relOutstanding,hasBalance:true,
         depAmtUSD,relAmtUSD,depUnpaid:o.depositStatus!=="paid",relUnpaid:true});
     // Single-amount PO (no deposit/release split) — treat as Release
     if(depAmtUSD<0.01&&relAmtUSD<0.01&&o.releaseStatus!=="paid"){
       const totUSD=toUSD(o.totalValue,o.currency);
-      if(totUSD>0.01)lines.push({...o,lineId:o.id+"-rel",lineType:"release",lineAmtUSD:totUSD,outstanding:totUSD,hasBalance:true,
+      const totPaidUSD=toUSD(+(o.releasePaidAmt)||0,o.currency);
+      const totOutstanding=Math.max(totUSD-totPaidUSD,0);
+      if(totOutstanding>0.01)lines.push({...o,lineId:o.id+"-rel",lineType:"release",lineAmtUSD:totUSD,outstanding:totOutstanding,hasBalance:true,
         depAmtUSD:0,relAmtUSD:totUSD,depUnpaid:false,relUnpaid:true});
     }
   });
@@ -222,8 +228,9 @@ function fuzzyMatchPO(input, orders, payments) {
     else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}
     else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
     const depAmtUSD=toUSD(o.depositAmt,o.currency),relAmtUSD=toUSD(o.releaseAmt,o.currency);
+    const depPaidUSD=toUSD(+(o.depositPaidAmt)||0,o.currency),relPaidUSD=toUSD(+(o.releasePaidAmt)||0,o.currency);
     const depUnpaid=o.depositStatus!=="paid",relUnpaid=o.releaseStatus!=="paid";
-    const outstanding=(depUnpaid?depAmtUSD:0)+(relUnpaid?relAmtUSD:0);
+    const outstanding=(depUnpaid?Math.max(depAmtUSD-depPaidUSD,0):0)+(relUnpaid?Math.max(relAmtUSD-relPaidUSD,0):0);
     const bal=outstanding>0.01;
     if(score>0&&bal)score+=5;
     const totalUSD=depAmtUSD+relAmtUSD;return{...o,score,reason,outstanding,totalUSD,hasBalance:bal,depAmtUSD,relAmtUSD,depUnpaid,relUnpaid};
@@ -243,7 +250,7 @@ async function parseDoc(file) {
 }
 
 // Small UI components
-function StatusBadge({status,dueDate}){let l=status,c="badge ";if(status==="due"&&dueDate&&new Date(dueDate)<new Date()){l="overdue";c+="badge-red";}else if(status==="paid")c+="badge-green";else if(status==="due")c+="badge-amber";else c+="badge-grey";return <span className={c}>{l}</span>;}
+function StatusBadge({status,dueDate}){let l=status,c="badge ";if(status==="due"&&dueDate&&new Date(dueDate)<new Date()){l="overdue";c+="badge-red";}else if(status==="paid")c+="badge-green";else if(status==="partial"){l="partial";c+="badge-blue";}else if(status==="due")c+="badge-amber";else c+="badge-grey";return <span className={c}>{l}</span>;}
 function RegionBadge({region}){return <span className={`region-badge region-${region}`}>{region}</span>;}
 function ConfIcon({level}){if(level==="high")return <div style={{width:28,height:28}}></div>;if(level==="medium")return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,opacity:.6}}>⚠</div>;return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"var(--rd)",fontWeight:700}}>!</div>;}
 function BtnGroup({options,value,onChange,allLabel}){return <div className="btn-group">{allLabel&&<button className={`bg-btn ${value==="all"?"bg-act":""}`} onClick={()=>onChange("all")}>{allLabel}</button>}{options.map(o=><button key={o} className={`bg-btn ${value===o?"bg-act":""}`} onClick={()=>onChange(value===o?"all":o)}>{o}</button>)}</div>;}
@@ -259,7 +266,7 @@ function EditOrderModal({order,onSave,onClose}){
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   const save=async()=>{setSaving(true);try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}};
-  const doUpload=async f=>{setUploadFile(f);setUploading(true);try{await apiUploadFile(f,order.ref);setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);}};
+  const doUpload=async f=>{setUploadFile(f);setUploading(true);try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10)});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);}};
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h2>Edit Order: {order.ref}</h2>
@@ -564,7 +571,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const empty=dt=>dt==="purchase_order"?{doc_type:"purchase_order",supplier:"",po_reference:"",invoice_number:"",po_date:"",destination_region:"",currency:"USD",deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"commercial_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
   const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);const edData={...r};if((r.doc_type||defaultDocType)==="purchase_order"&&r.po_date&&!r.deposit_due){edData.deposit_due=r.po_date;const rd=new Date(r.po_date);rd.setDate(rd.getDate()+21);edData.release_due=rd.toISOString().slice(0,10);}setEd(edData);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
   const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
-    if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",depositAmt:+(d.deposit_amount)||0,depositStatus:+(d.deposit_amount)>0?"due":"paid",depositDue:d.deposit_due||"",releaseAmt:+(d.release_amount)||0,releaseStatus:"unpaid",releaseDue:d.release_due||"",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
+    if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",depositAmt:+(d.deposit_amount)||0,depositStatus:+(d.deposit_amount)>0?"due":"paid",depositDue:d.deposit_due||"",releaseAmt:+(d.release_amount)||0,releaseStatus:"unpaid",releaseDue:d.release_due||"",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:"purchase_order",docDate:d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
     else if(dt==="remittance"){
       const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
       const allocs=d._allocations||[];
@@ -591,10 +598,10 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
 
       // Upload file to first PO's folder
       if(file&&allocs.length>0){
-        try{await apiUploadFile(file,allocs[0].ref);}catch(e){}
+        try{await apiUploadFile(file,allocs[0].ref,{docType:"remittance",docDate:d.payment_date||new Date().toISOString().slice(0,10),entity:d.source_entity||"",bankLabel:d.bank_account_hint||""});}catch(e){}
       }
     }
-    else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference);}catch(e){}}
+    else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt||"commercial_invoice",docDate:d.invoice_date||d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
     if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
   }catch(e){setError("Save failed: "+e.message);setSt("review");}};
   const reset=()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);};
@@ -633,7 +640,11 @@ function RowUploadModal({order,onClose,onRefresh}){
     setSaving(true);setError(null);
     try{
       // Always upload file to this PO's Drive folder
-      if(file&&order.ref)await apiUploadFile(file,order.ref);
+      if(file&&order.ref){
+        const uploadMeta={docType:docType||"document",docDate:new Date().toISOString().slice(0,10)};
+        if(docType==="remittance"){uploadMeta.entity=payForm.source||order.region||"";uploadMeta.bankLabel=payForm.bank||"";}
+        await apiUploadFile(file,order.ref,uploadMeta);
+      }
 
       // If remittance, optionally record payment (supporting-doc-only mode avoids duplicate entries)
       if(docType==="remittance"&&createPayment){
@@ -755,16 +766,20 @@ function ordersToLineItems(orders){
   orders.forEach(o=>{
     const hasDep=o.depositAmt>0;
     const hasRel=o.releaseAmt>0;
+    const depPaidAmt=+(o.depositPaidAmt)||0;
+    const relPaidAmt=+(o.releasePaidAmt)||0;
+    const depOutstanding=Math.max(o.depositAmt-depPaidAmt,0);
+    const relOutstanding=Math.max(o.releaseAmt-relPaidAmt,0);
     if(hasDep&&hasRel){
-      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
-      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep",linePaidAmt:depPaidAmt,lineOutstanding:depOutstanding});
+      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",linePaidAmt:relPaidAmt,lineOutstanding:relOutstanding});
     }else if(hasDep){
-      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep",linePaidAmt:depPaidAmt,lineOutstanding:depOutstanding});
     }else if(hasRel){
-      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",linePaidAmt:relPaidAmt,lineOutstanding:relOutstanding});
     }else{
       // Single-amount PO — treat as Release
-      items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel"});
+      items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel",linePaidAmt:relPaidAmt,lineOutstanding:Math.max(o.totalValue-relPaidAmt,0)});
     }
   });
   return items;
@@ -778,21 +793,22 @@ function OrdersTab({orders,payments,onRefresh}){
   const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
   const allItems=ordersToLineItems(orders);
   const baseFiltered=allItems.filter(item=>{if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
-  const sortItems=items=>[...items].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="usdEquiv")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paidDate")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;if(sort.key==="status"){const sv=s=>s==="paid"?0:s==="due"?1:s==="overdue"?2:3;return(sv(a.lineStatus)-sv(b.lineStatus))*d;}return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
+  const sortItems=items=>[...items].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="usdEquiv")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="paidAmt")return(toUSD(a.linePaidAmt||0,a.currency)-toUSD(b.linePaidAmt||0,b.currency))*d;if(sort.key==="outstanding")return(toUSD(a.lineOutstanding||0,a.currency)-toUSD(b.lineOutstanding||0,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paidDate")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;if(sort.key==="status"){const sv=s=>s==="paid"?0:s==="due"?1:s==="overdue"?2:3;return(sv(a.lineStatus)-sv(b.lineStatus))*d;}return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
   const unpaidItems=baseFiltered.filter(i=>i.lineStatus!=="paid");
   const paidItems=baseFiltered.filter(i=>i.lineStatus==="paid");
   const unpaidSorted=sortItems(unpaidItems);
   const paidSorted=sortItems(paidItems);
   const tv=baseFiltered.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
-  const tp=paidItems.reduce((s,i)=>s+toUSD(i.lineAmount,i.currency),0);
+  const tp=baseFiltered.reduce((s,i)=>s+toUSD(i.linePaidAmt||0,i.currency),0);
+  const to=baseFiltered.reduce((s,i)=>s+toUSD(i.lineOutstanding||0,i.currency),0);
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
-  const renderRows=items=><tbody>{items.map(item=>{const isPaid=item.lineStatus==="paid";const isOverdue=!isPaid&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isOverdue?"#fef2f2":"inherit"}}><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td><td className="cm">{fmtDate(item.poDate)}</td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td>{item.supplier}{item.notes?<span className="cm" style={{display:"block",fontSize:10}}>{item.notes}</span>:""}</td><td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}{!items.length&&<tr><td colSpan={14} className="ec">No line items match</td></tr>}</tbody>;
+  const renderRows=items=><tbody>{items.map(item=>{const isPaid=item.lineStatus==="paid";const isPartial=item.lineStatus==="partial";const isOverdue=!isPaid&&!isPartial&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isPartial?"#eff6ff":isOverdue?"#fef2f2":"inherit"}}><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="mono" style={{color:item.linePaidAmt>0?"var(--gn)":"var(--tx3)"}}>{item.linePaidAmt>0?usd(toUSD(item.linePaidAmt,item.currency)):"—"}</td><td className="mono" style={{fontWeight:700,color:item.lineOutstanding>0?"var(--am)":"var(--gn)"}}>{usd(toUSD(item.lineOutstanding,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td><td className="cm">{fmtDate(item.poDate)}</td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td>{item.supplier}{item.notes?<span className="cm" style={{display:"block",fontSize:10}}>{item.notes}</span>:""}</td><td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}{!items.length&&<tr><td colSpan={16} className="ec">No line items match</td></tr>}</tbody>;
 
   return <>
     <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{unpaidItems.length} unpaid · {paidItems.length} paid (from {baseFiltered.length} filtered line items)</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload PO"}</button></div>
     {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
-    <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{baseFiltered.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(tv-tp)}</div></div></div>
+    <div className="sg"><div className="sc"><div className="sl">Line Items</div><div className="sv">{baseFiltered.length}</div></div><div className="sc"><div className="sl">Total Value</div><div className="sv mono">{usd(tv)}</div></div><div className="sc"><div className="sl">Paid</div><div className="sv mono green">{usd(tp)}</div></div><div className="sc"><div className="sl">Outstanding</div><div className="sv mono amber">{usd(to)}</div></div></div>
     <div className="filter-bar">
       <input placeholder="Search PO, invoice..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
       <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["1M","3M","6M","1Y"]} value={fAge} onChange={setFAge} allLabel="All"/></div>
@@ -803,14 +819,14 @@ function OrdersTab({orders,payments,onRefresh}){
     <div style={{marginBottom:12,padding:"12px 14px",border:"1px solid var(--ambd)",background:"var(--amb)",borderRadius:"var(--r)"}}>
       <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--am)",marginBottom:8}}>Outstanding / Unpaid POs</div>
       <div style={{fontSize:12,color:"var(--tx2)",marginBottom:8}}>Shown by default</div>
-      <div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>{renderRows(unpaidSorted)}</table></div></div>
+      <div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("paidAmt")}>Paid{si("paidAmt")}</th><th className="srt" onClick={()=>ts("outstanding")}>Outstanding{si("outstanding")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>{renderRows(unpaidSorted)}</table></div></div>
     </div>
 
     <div style={{border:"1px solid var(--bd)",borderRadius:"var(--r)",overflow:"hidden"}}>
       <button onClick={()=>setShowPaid(p=>!p)} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 14px",background:"var(--s2)",border:"none",cursor:"pointer",fontWeight:700,color:"var(--tx)",fontSize:13}}>
         <span>Paid POs ({paidSorted.length})</span><span>{showPaid?"▾":"▸"}</span>
       </button>
-      {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div></div>}
+      {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("paidAmt")}>Paid{si("paidAmt")}</th><th className="srt" onClick={()=>ts("outstanding")}>Outstanding{si("outstanding")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div></div>}
     </div>
 
     {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{setEditOrder(null);await onRefresh();}} onClose={()=>setEditOrder(null)}/>}
@@ -860,7 +876,7 @@ function IntercompanyTab({orders,payments}){
 }
 
 function ForecastTab({orders}){
-  const weeks={};orders.forEach(o=>{const add=(d,a,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else if(new Date(d)<new Date())weeks[wk].over+=u;else weeks[wk].due+=u;weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,status:st,label,date:d});};add(o.depositDue,o.depositAmt,o.depositStatus,"Deposit");add(o.releaseDue,o.releaseAmt,o.releaseStatus,"Release");});
+  const weeks={};orders.forEach(o=>{const add=(d,a,paidAmt,st,label)=>{if(!d)return;const u=toUSD(a,o.currency);const paid=toUSD(paidAmt,o.currency);const outstanding=Math.max(u-paid,0);const wk=weekKey(d);if(!weeks[wk])weeks[wk]={paid:0,due:0,over:0,total:0,items:[]};weeks[wk].total+=u;if(st==="paid")weeks[wk].paid+=u;else{weeks[wk].paid+=paid;if(new Date(d)<new Date())weeks[wk].over+=outstanding;else weeks[wk].due+=outstanding;}weeks[wk].items.push({ref:o.ref,region:o.region,amount:u,paidAmt:paid,outstanding,status:st,label,date:d});};add(o.depositDue,o.depositAmt,+(o.depositPaidAmt)||0,o.depositStatus,"Deposit");add(o.releaseDue,o.releaseAmt,+(o.releasePaidAmt)||0,o.releaseStatus,"Release");});
   const sortedWeeks=Object.entries(weeks).sort(([a],[b])=>a.localeCompare(b));let cumul=0;
   const withCumul=sortedWeeks.map(([wk,d])=>{cumul+=d.total;return[wk,d,cumul];});
   const[expanded,setExpanded]=useState({});const toggle=wk=>setExpanded(p=>({...p,[wk]:!p[wk]}));
@@ -870,7 +886,7 @@ function ForecastTab({orders}){
       <div className="wk-header" onClick={()=>toggle(wk)} style={{cursor:"pointer"}}><div className="wk-date">{fmtWeek(wk)} <span className="wk-count">({d.items.length})</span></div><div className="wk-nums"><span className="mono">{usd(d.total)}</span><span className="wk-cum mono">Σ {usd(cum)}</span></div></div>
       <div className="bt"><div className="bf bg" style={{width:d.total>0?pct(d.paid/d.total):"0%"}}/><div className="bf br" style={{width:d.total>0?pct(d.over/d.total):"0%"}}/><div className="bf ba" style={{width:d.total>0?pct(d.due/d.total):"0%"}}/></div>
       <div className="fl"><span><span className="dot dg"/>Paid: {usd(d.paid)}</span>{d.over>0&&<span><span className="dot dr"/>Overdue: {usd(d.over)}</span>}<span><span className="dot da"/>Due: {usd(d.due)}</span></div>
-      {expanded[wk]&&<div className="wk-items">{d.items.sort((a,b)=>a.date.localeCompare(b.date)).map((it,i)=><div key={i} className="wk-item"><RegionBadge region={it.region}/><span className="cb" style={{flex:1}}>{it.ref}</span><span className="badge badge-grey" style={{fontSize:10}}>{it.label}</span><StatusBadge status={it.status} dueDate={it.date}/><span className="mono" style={{minWidth:90,textAlign:"right"}}>{usd(it.amount)}</span></div>)}</div>}
+      {expanded[wk]&&<div className="wk-items">{d.items.sort((a,b)=>a.date.localeCompare(b.date)).map((it,i)=><div key={i} className="wk-item"><RegionBadge region={it.region}/><span className="cb" style={{flex:1}}>{it.ref}</span><span className="badge badge-grey" style={{fontSize:10}}>{it.label}</span><StatusBadge status={it.status} dueDate={it.date}/><span className="mono" style={{minWidth:90,textAlign:"right"}}>{usd(it.amount)}</span>{it.status!=="paid"&&it.paidAmt>0.01&&<span className="mono" style={{minWidth:90,textAlign:"right",color:"var(--rd)",fontSize:11}}>({usd(it.outstanding)} due)</span>}</div>)}</div>}
     </div>)}</div>
   </>;
 }

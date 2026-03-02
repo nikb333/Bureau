@@ -79,6 +79,22 @@ th.usd-col{background:rgba(37,99,235,.10)}td.usd-col{background:rgba(37,99,235,.
 </head>
 <body>
 <div id="root"></div>
+<script>
+(function(){
+  const root = document.getElementById("root");
+  let mounted = false;
+  const markMounted = ()=>{ mounted = true; };
+  window.__bureauMarkMounted = markMounted;
+  window.addEventListener("error", function(e){
+    if(!root || mounted) return;
+    root.innerHTML = '<div style="padding:24px;font-family:DM Sans,Arial,sans-serif;color:#b91c1c"><h2 style="margin:0 0 8px">Bureau Ops failed to load</h2><div style="font-size:13px">'+(e.message||'Runtime error')+'</div></div>';
+  });
+  setTimeout(function(){
+    if(!root || mounted || root.children.length>0) return;
+    root.innerHTML = '<div style="padding:24px;font-family:DM Sans,Arial,sans-serif;color:#92400e"><h2 style="margin:0 0 8px">Loading issue detected</h2><div style="font-size:13px">The app script did not initialize. Please hard refresh (Ctrl+Shift+R).</div></div>';
+  }, 3000);
+})();
+</script>
 <script type="text/babel" data-type="module">
 const { useState, useRef, useMemo, useEffect, useCallback } = React;
 
@@ -116,6 +132,14 @@ const getWeekStart = d => { const dt = new Date(d); const day = dt.getDay(); con
 const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDate(e.getDate() + 6); return `${s.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`; };
 const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
 const num = v => { const n = +(v||0); return Number.isFinite(n) ? n : 0; };
+function hasExplicitReleaseLine(order){
+  return num(order.releaseAmt)>0||!!((order.releaseStatus||"").trim()||order.releaseDue||order.releasePaid);
+}
+
+function effectiveReleaseAmt(order){
+  const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
+  if (rel > 0.01) return rel;
+  if (((order.releaseStatus||"").toLowerCase() || "unpaid") !== "paid" && total > dep + 0.01) return +(total - dep).toFixed(2);
 function effectiveReleaseAmt(order){
   const dep = num(order.depositAmt), rel = num(order.releaseAmt), total = num(order.totalValue);
   if (rel > 0.01) return rel;
@@ -230,6 +254,7 @@ function fuzzyMatchPO(input, orders, payments) {
     else if(q.includes(rc)||q.includes(ic)){score=80;reason="In input";}
     else if(qNums.length>0){const an=[...extractNums(o.ref),...extractNums(o.inv)];if(qNums.some(n=>an.includes(n))){score=75;reason="PO#";}}
     const depAmtUSD=toUSD(num(o.depositAmt),o.currency),relAmtUSD=toUSD(effectiveReleaseAmt(o),o.currency);
+    const depUnpaid=(o.depositStatus||"unpaid")!=="paid",relUnpaid=(o.releaseStatus||"unpaid")!=="paid";
     const depUnpaid=o.depositStatus!=="paid",relUnpaid=o.releaseStatus!=="paid";
     const outstanding=(depUnpaid?depAmtUSD:0)+(relUnpaid?relAmtUSD:0);
     const bal=outstanding>0.01;
@@ -772,6 +797,14 @@ function ordersToLineItems(orders){
     const depAmt=num(o.depositAmt);
     const relAmt=effectiveReleaseAmt(o);
     const hasDep=depAmt>0;
+    const hasRel=relAmt>0||hasExplicitReleaseLine(o);
+    if(hasDep&&hasRel){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
+    }else if(hasDep){
+      items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus||"unpaid",lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
+    }else if(hasRel){
+      items.push({...o,lineType:"Release",lineAmount:relAmt,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",inferredRelease:num(o.releaseAmt)<=0});
     const hasRel=relAmt>0;
     if(hasDep&&hasRel){
       items.push({...o,lineType:"Deposit",lineAmount:depAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep"});
@@ -918,6 +951,7 @@ function App(){
   </div>;
 }
 
+window.__bureauMarkMounted?.();
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>

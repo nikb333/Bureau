@@ -526,7 +526,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
     <div className="rs-t">Document Type</div>
     <div className="rr"><div className="rr-s"><ConfIcon level="high"/></div><div className="rr-l">Type</div><div className="rr-i">{onChangeDocType?<select value={docType} onChange={e=>switchDocType(e.target.value)} className="ri">{DOC_TYPES.map(d=><option key={d.id} value={d.id}>{d.icon} {d.label}</option>)}</select>:<span className="badge badge-blue">{DOC_TYPES.find(d=>d.id===docType)?.icon} {DOC_TYPES.find(d=>d.id===docType)?.label}</span>}</div></div>
 
-    {docType==="purchase_order"&&<>
+    {(docType==="purchase_order"||docType==="commercial_invoice")&&<>
       <div className="rs-t">Order Details</div>
       <Row label="Supplier" field="supplier"><select value={ed.supplier||""} onChange={e=>sf("supplier",e.target.value)} className="ri"><option value="">Select...</option>{SUPPLIERS.map(s=><option key={s}>{s}</option>)}</select></Row>
       <Row label="PO Reference" field="po_reference"><input className="ri" value={ed.po_reference||""} onChange={e=>sf("po_reference",e.target.value)} placeholder="PO-215"/></Row>
@@ -557,7 +557,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
       <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)} placeholder="Optional"/></Row>
     </>}
 
-    {(docType==="commercial_invoice"||docType==="freight_invoice")&&<>
+    {docType==="freight_invoice"&&<>
       <div className="rs-t">Invoice Details</div>
       <Row label="Invoice #" field="invoice_number"><input className="ri" value={ed.invoice_number||""} onChange={e=>sf("invoice_number",e.target.value)}/></Row>
       <Row label="PO Reference" field="po_reference"><input className="ri" value={ed.po_reference||""} onChange={e=>sf("po_reference",e.target.value)}/></Row>
@@ -572,10 +572,10 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
 // InlineUploader
 function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,onRefresh}){
   const[st,setSt]=useState("idle");const[file,setFile]=useState(null);const[parsed,setParsed]=useState(null);const[ed,setEd]=useState(null);const[docType,setDocType]=useState(defaultDocType);const[error,setError]=useState(null);
-  const empty=dt=>dt==="purchase_order"?{doc_type:"purchase_order",supplier:"",po_reference:"",invoice_number:"",po_date:"",destination_region:"",currency:"USD",deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"commercial_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
-  const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);const edData={...r};if((r.doc_type||defaultDocType)==="purchase_order"&&r.po_date&&!r.deposit_due){edData.deposit_due=r.po_date;const rd=new Date(r.po_date);rd.setDate(rd.getDate()+21);edData.release_due=rd.toISOString().slice(0,10);}/* Normalize supplier to known list (case-insensitive) */const matchedSupplier=SUPPLIERS.find(s=>s.toLowerCase()===(r.supplier||"").toLowerCase())||"";if(matchedSupplier)edData.supplier=matchedSupplier;/* Default notes to supplier name only */if(r.doc_type!=="remittance"){edData.notes=matchedSupplier||r.supplier||"";}setEd(edData);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
+  const empty=dt=>(dt==="purchase_order"||dt==="commercial_invoice")?{doc_type:dt,supplier:"",po_reference:"",invoice_number:"",po_date:"",destination_region:"",currency:"USD",deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"freight_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
+  const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);const edData={...r};if(((r.doc_type||defaultDocType)==="purchase_order"||(r.doc_type||defaultDocType)==="commercial_invoice")&&(r.po_date||r.invoice_date)&&!r.deposit_due){const dt=r.po_date||r.invoice_date;if(!edData.po_date)edData.po_date=dt;edData.deposit_due=dt;const rd=new Date(dt);rd.setDate(rd.getDate()+21);edData.release_due=rd.toISOString().slice(0,10);}/* Normalize supplier to known list (case-insensitive) */const matchedSupplier=SUPPLIERS.find(s=>s.toLowerCase()===(r.supplier||"").toLowerCase())||"";if(matchedSupplier)edData.supplier=matchedSupplier;/* Default notes to supplier name only */if(r.doc_type!=="remittance"){edData.notes=matchedSupplier||r.supplier||"";}setEd(edData);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
   const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
-    if(dt==="purchase_order"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",depositAmt:+(d.deposit_amount)||0,depositStatus:+(d.deposit_amount)>0?"due":"paid",depositDue:d.deposit_due||"",releaseAmt:+(d.release_amount)||0,releaseStatus:"unpaid",releaseDue:d.release_due||"",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:"purchase_order",docDate:d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
+    if(dt==="purchase_order"||dt==="commercial_invoice"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",depositAmt:+(d.deposit_amount)||0,depositStatus:+(d.deposit_amount)>0?"due":"paid",depositDue:d.deposit_due||"",releaseAmt:+(d.release_amount)||0,releaseStatus:"unpaid",releaseDue:d.release_due||"",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt,docDate:d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
     else if(dt==="remittance"){
       const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
       const allocs=d._allocations||[];
@@ -605,7 +605,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
         try{await apiUploadFile(file,allocs[0].ref,{docType:"remittance",docDate:d.payment_date||new Date().toISOString().slice(0,10),entity:d.source_entity||"",bankLabel:d.bank_account_hint||""});}catch(e){}
       }
     }
-    else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt||"commercial_invoice",docDate:d.invoice_date||d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
+    else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt||"freight_invoice",docDate:d.invoice_date||d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
     if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
   }catch(e){setError("Save failed: "+e.message);setSt("review");}};
   const reset=()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);};

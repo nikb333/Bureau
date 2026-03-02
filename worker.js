@@ -673,6 +673,38 @@ async function driveListFolders(token) {
   return allFolders;
 }
 
+async function driveListAllFiles(token) {
+  const suppliers = await getSupplierFolders(token);
+  const allFiles = [];
+  for (const [, supplierId] of suppliers) {
+    // List all PO subfolders for this supplier
+    const fq = encodeURIComponent(
+      `'${supplierId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+    );
+    const fRes = await fetch(
+      `${DRIVE_BASE}/files?q=${fq}&fields=files(id,name)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!fRes.ok) continue;
+    const poFolders = (await fRes.json()).files || [];
+    // Query files inside each PO folder in parallel (batches of 10)
+    for (let i = 0; i < poFolders.length; i += 10) {
+      const batch = poFolders.slice(i, i + 10);
+      const results = await Promise.all(batch.map(async pf => {
+        const q = encodeURIComponent(`'${pf.id}' in parents and trashed = false`);
+        const res = await fetch(
+          `${DRIVE_BASE}/files?q=${q}&fields=files(id,name)&pageSize=50&supportsAllDrives=true&includeItemsFromAllDrives=true`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!res.ok) return [];
+        return ((await res.json()).files || []).map(f => ({ ...f, folderId: pf.id, folderName: pf.name }));
+      }));
+      results.forEach(files => allFiles.push(...files));
+    }
+  }
+  return allFiles;
+}
+
 async function driveCreateFolder(token, folderName, supplier) {
   const existing = await driveListFolders(token);
   const found = existing.find(f => f.name.toLowerCase() === folderName.toLowerCase());
@@ -1060,17 +1092,17 @@ export default {
             };
             const typeLabel = typeLabels[docType] || "";
             const datePart = docDate || new Date().toISOString().slice(0, 10);
+            const entityPart = entity ? ` ${entity}` : "";
             if (docType === "remittance") {
               // e.g. "PO-193 CA Remittance UK-HSBC 2026-03-02.pdf"
-              const entityPart = entity ? ` ${entity}` : "";
               const bankPart = bankLabel ? ` ${bankLabel}` : "";
               uploadName = `${poRef}${entityPart} ${typeLabel}${bankPart} ${datePart}${ext}`;
             } else if (typeLabel) {
-              // e.g. "PO-193 Purchase Order 2026-03-02.pdf"
-              uploadName = `${poRef} ${typeLabel} ${datePart}${ext}`;
+              // e.g. "PO-193 US Purchase Order 2026-03-02.pdf"
+              uploadName = `${poRef}${entityPart} ${typeLabel} ${datePart}${ext}`;
             } else {
               // Generic document — just PO ref + date
-              uploadName = `${poRef} ${datePart}${ext}`;
+              uploadName = `${poRef}${entityPart} ${datePart}${ext}`;
             }
           }
 
@@ -1193,17 +1225,31 @@ Hints for destination_region: GB prefix=UK, US=US, CA=CA, AU/E=AU.`;
       // GET /api/all — combined load
       if (path === "/api/all" && method === "GET") {
         const token = await getToken(env);
-        const [orders, payments, folders] = await Promise.all([
+        const [orders, payments, folders, allFiles] = await Promise.all([
           getAllOrders(token, sheetId),
           getAllPayments(token, sheetId),
           driveListFolders(token).catch(() => []),
+          driveListAllFiles(token).catch(() => []),
         ]);
         const folderMap = {};
         folders.forEach(f => { folderMap[f.name] = f; });
+        // Build docTypes map: folderId → {po, ci, rem} booleans based on file names
+        const docTypesMap = {};
+        allFiles.forEach(f => {
+          const fid = f.folderId;
+          if (!docTypesMap[fid]) docTypesMap[fid] = { po: false, ci: false, rem: false };
+          const n = (f.name || "").toLowerCase();
+          if (n.includes("purchase order")) docTypesMap[fid].po = true;
+          else if (n.includes("commercial invoice")) docTypesMap[fid].ci = true;
+          else if (n.includes("remittance")) docTypesMap[fid].rem = true;
+        });
         orders.forEach(o => {
           if (!o.driveFolderId) {
             const folder = folderMap[o.id];
             if (folder) { o.driveFolderId = folder.id; o.driveUrl = folder.webViewLink; }
+          }
+          if (o.driveFolderId && docTypesMap[o.driveFolderId]) {
+            o.docs = docTypesMap[o.driveFolderId];
           }
         });
         return json({

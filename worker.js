@@ -159,11 +159,15 @@ async function getAllOrders(token, sheetId) {
 
 async function addOrder(token, sheetId, order) {
   const now = new Date().toISOString().slice(0, 19);
+  // totalValue is always derived from deposit + release — never set independently
+  const depAmt = +(order.depositAmt) || 0;
+  const relAmt = +(order.releaseAmt) || 0;
+  const totalValue = depAmt + relAmt;
   const row = [
     order.id, order.region, order.ref, order.inv || "", order.supplier || "",
-    order.currency || "USD", order.totalValue || 0,
-    order.depositAmt || 0, order.depositStatus || "unpaid", order.depositDue || "", order.depositPaid || "",
-    order.releaseAmt || 0, order.releaseStatus || "unpaid", order.releaseDue || "", order.releasePaid || "",
+    order.currency || "USD", totalValue,
+    depAmt, order.depositStatus || "unpaid", order.depositDue || "", order.depositPaid || "",
+    relAmt, order.releaseStatus || "unpaid", order.releaseDue || "", order.releasePaid || "",
     order.notes || "", order.driveFolderId || "", order.created || now, now,
     order.poDate || "",
   ];
@@ -183,7 +187,6 @@ async function updateOrder(token, sheetId, orderId, updates) {
   if (updates.inv !== undefined) row[3] = updates.inv;
   if (updates.supplier !== undefined) row[4] = updates.supplier;
   if (updates.currency !== undefined) row[5] = updates.currency;
-  if (updates.totalValue !== undefined) row[6] = updates.totalValue;
   if (updates.depositAmt !== undefined) row[7] = updates.depositAmt;
   if (updates.depositStatus !== undefined) row[8] = updates.depositStatus;
   if (updates.depositDue !== undefined) row[9] = updates.depositDue;
@@ -192,6 +195,8 @@ async function updateOrder(token, sheetId, orderId, updates) {
   if (updates.releaseStatus !== undefined) row[12] = updates.releaseStatus;
   if (updates.releaseDue !== undefined) row[13] = updates.releaseDue;
   if (updates.releasePaid !== undefined) row[14] = updates.releasePaid;
+  // totalValue is always derived — recompute from deposit + release
+  row[6] = (+(row[7]) || 0) + (+(row[11]) || 0);
   if (updates.notes !== undefined) row[15] = updates.notes;
   if (updates.driveFolderId !== undefined) row[16] = updates.driveFolderId;
   if (updates.poDate !== undefined) row[19] = updates.poDate;

@@ -492,7 +492,7 @@ function AllocCard({a,onRemove}){
 }
 
 // RemittanceAllocationUI — allocation is always against deposit OR release, never total
-function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,orders,payments}){
+function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,fileName,orders,payments}){
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   const[allocs,setAllocs]=useState([]);const[search,setSearch]=useState("");
   const[expandedPartial,setExpandedPartial]=useState(null);const[partialAmt,setPartialAmt]=useState("");
@@ -629,12 +629,12 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,fileName,ord
       {Math.abs(remaining)>0.01&&remaining>0&&<div style={{fontSize:11,color:"var(--rd)",marginTop:6,fontWeight:600}}>Must allocate full payment amount to confirm</div>}
     </div>
 
-    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className="btn btn-primary" onClick={handleConfirm} disabled={allocs.length===0||Math.abs(remaining)>0.01}>Confirm & Save</button></div>
+    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>{cancelLabel||"Cancel"}</button><button className="btn btn-primary" onClick={handleConfirm} disabled={allocs.length===0||Math.abs(remaining)>0.01}>Confirm & Save</button></div>
   </div>;
 }
 
 // ReviewScreen
-function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCancel,fileName,orders,payments}){
+function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCancel,cancelLabel,fileName,orders,payments}){
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));const cd=parsed?.confidence_details||{};const oc=parsed?.confidence||"medium";
   const switchDocType=newType=>{
     if(newType===docType)return;
@@ -718,7 +718,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
       <Row label="Region" field="destination_region"><select value={ed.destination_region||""} onChange={e=>sf("destination_region",e.target.value)} className="ri"><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></Row>
       <Row label="Notes" conf="high"><input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)}/></Row>
     </>}
-    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className="btn btn-primary" onClick={handleConfirm}>✓ Confirm & Save</button></div>
+    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>{cancelLabel||"Cancel"}</button><button className="btn btn-primary" onClick={handleConfirm}>✓ Confirm & Save</button></div>
   </div>;
 }
 
@@ -836,7 +836,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
     }
     loading.hide();
     // Move to next item or finish
-    const nextIdx=queue.findIndex((x,i)=>i>activeIdx&&x.status!=="done");
+    const nextIdx=queue.findIndex((x,i)=>i>activeIdx&&x.status!=="done"&&x.status!=="skipped");
     if(nextIdx>=0){setActiveIdx(nextIdx);}
     else{
       // All done — refresh and reset
@@ -849,13 +849,25 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   };
 
   const skipCurrent=()=>{
-    setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"done"}:x));
-    const nextIdx=queue.findIndex((x,i)=>i>activeIdx&&x.status!=="done");
+    const updated=queue.map((x,i)=>i===activeIdx?{...x,status:"skipped"}:x);
+    setQueue(updated);
+    const nextIdx=updated.findIndex((x,i)=>i>activeIdx&&x.status!=="done"&&x.status!=="skipped");
     if(nextIdx>=0){setActiveIdx(nextIdx);}
-    else{setSt("idle");setQueue([]);setActiveIdx(-1);}
+    else{
+      // All done/skipped — if any were saved, refresh
+      const savedCount=updated.filter(x=>x.status==="done").length;
+      if(savedCount>0){(async()=>{if(onRefresh)await onRefresh();setSt("done");})();}
+      else{setSt("idle");setQueue([]);setActiveIdx(-1);}
+    }
+  };
+  const cancelRemaining=async()=>{
+    // Skip all unsaved items, keep saved ones
+    const savedCount=queue.filter(x=>x.status==="done").length;
+    if(savedCount>0){if(onRefresh)await onRefresh();setSt("done");}
+    else{setSt("idle");setQueue([]);setActiveIdx(-1);setLastRemittance(null);}
   };
 
-  const setActiveEd=ed=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,ed}:x));
+  const setActiveEd=updater=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,ed:typeof updater==='function'?updater(x.ed):updater}:x));
   const setActiveDocType=dt=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,docType:dt}:x));
 
   const reset=()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);setLastRemittance(null);};
@@ -870,11 +882,13 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
 
   if(st==="done"){
     const doneCount=queue.filter(x=>x.status==="done").length;
+    const skippedCount=queue.filter(x=>x.status==="skipped").length;
+    const summary=doneCount>0?`${doneCount} saved`+(skippedCount>0?`, ${skippedCount} skipped`:""):"No documents saved";
     const dismissAll=()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);setLastRemittance(null);};
     if(lastRemittance){
       const emailUrl=buildPaymentEmailUrl(lastRemittance);
       return <div style={{padding:16,background:"var(--s2)",borderRadius:"var(--r2)",border:"1px solid var(--bd)"}}>
-        <div className="il-d" style={{marginBottom:12}}><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{doneCount} document{doneCount>1?"s":""} saved</span></div>
+        <div className="il-d" style={{marginBottom:12}}><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{summary}</span></div>
         <div style={{padding:14,background:"var(--wh)",borderRadius:"var(--r)",border:"1px solid var(--bd)",marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:"var(--tx)"}}>Send payment confirmation email?</div>
           <div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>PO{lastRemittance.poRefs.length>1?"s":""}: <span style={{fontWeight:600}}>{lastRemittance.poRefs.join(", ")}</span></div>
@@ -884,29 +898,35 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
         </div>
         <div style={{display:"flex",gap:8}}>
           <a href={emailUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{flex:1,textAlign:"center",textDecoration:"none"}} onClick={()=>setTimeout(dismissAll,500)}>Draft Email in Gmail</a>
-          <button className="btn" onClick={dismissAll} style={{flex:0,padding:"8px 16px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:6,cursor:"pointer"}}>Skip</button>
+          <button className="btn" onClick={dismissAll} style={{flex:0,padding:"8px 16px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:6,cursor:"pointer"}}>Done</button>
         </div>
       </div>;
     }
-    return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{doneCount} document{doneCount>1?"s":""} saved</span></div>;
+    if(!lastRemittance)setTimeout(dismissAll,2500);
+    return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{summary}</span></div>;
   }
 
   if(st==="review"){
     const item=queue[activeIdx];
     if(!item)return null;
     const doneCount=queue.filter(x=>x.status==="done").length;
+    const skippedCount=queue.filter(x=>x.status==="skipped").length;
     const totalCount=queue.length;
+    const remainingCount=totalCount-doneCount-skippedCount;
     const multiHeader=totalCount>1?<div className="mq" style={{marginBottom:12}}>
-      <div className="mq-h">Reviewing {activeIdx+1} of {totalCount} ({doneCount} saved)</div>
-      {queue.map((q,i)=><div key={i} className="mq-item" style={{background:i===activeIdx?"var(--acl)":"inherit"}}>
-        <div className={"mq-icon "+(q.status==="done"?"mq-done":i===activeIdx?"mq-active":q.error?"mq-err":"mq-wait")}>{q.status==="done"?"✓":i===activeIdx?"▸":q.error?"!":"·"}</div>
-        <div className="mq-name" style={{fontWeight:i===activeIdx?700:400}}>{q.file.name}</div>
-        <div className="mq-status">{q.status==="done"?"Saved":q.status==="saving"?"Saving...":i===activeIdx?"Reviewing":q.error?"Error":"Waiting"}</div>
+      <div className="mq-h" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span>Reviewing {doneCount+skippedCount+1} of {totalCount}{doneCount>0?` · ${doneCount} saved`:""}</span>
+        {remainingCount>1&&<button onClick={cancelRemaining} style={{background:"none",border:"1px solid var(--bd)",borderRadius:4,padding:"3px 10px",fontSize:11,color:"var(--tx3)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancel remaining ({remainingCount-1})</button>}
+      </div>
+      {queue.map((q,i)=><div key={i} className="mq-item" style={{background:i===activeIdx?"var(--acl)":"inherit",opacity:q.status==="skipped"?.5:1}}>
+        <div className={"mq-icon "+(q.status==="done"?"mq-done":q.status==="skipped"?"mq-wait":i===activeIdx?"mq-active":q.error?"mq-err":"mq-wait")}>{q.status==="done"?"✓":q.status==="skipped"?"—":i===activeIdx?"▸":q.error?"!":"·"}</div>
+        <div className="mq-name" style={{fontWeight:i===activeIdx?700:400,textDecoration:q.status==="skipped"?"line-through":"none"}}>{q.file.name}</div>
+        <div className="mq-status">{q.status==="done"?"Saved":q.status==="skipped"?"Skipped":q.status==="saving"?"Saving...":i===activeIdx?"Reviewing":q.error?"Error":"Waiting"}</div>
       </div>)}
     </div>:null;
 
-    if(item.docType==="remittance")return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<RemittanceAllocationUI parsed={item.parsed} ed={item.ed} setEd={setActiveEd} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} fileName={item.file?.name} orders={orders} payments={payments}/></>;
-    return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<ReviewScreen parsed={item.parsed} ed={item.ed} setEd={setActiveEd} docType={item.docType} onChangeDocType={setActiveDocType} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} fileName={item.file?.name} orders={orders} payments={payments}/></>;
+    if(item.docType==="remittance")return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<RemittanceAllocationUI parsed={item.parsed} ed={item.ed} setEd={setActiveEd} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} cancelLabel={totalCount>1?"Skip this":"Cancel"} fileName={item.file?.name} orders={orders} payments={payments}/></>;
+    return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<ReviewScreen parsed={item.parsed} ed={item.ed} setEd={setActiveEd} docType={item.docType} onChangeDocType={setActiveDocType} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} cancelLabel={totalCount>1?"Skip this":"Cancel"} fileName={item.file?.name} orders={orders} payments={payments}/></>;
   }
   return null;
 }

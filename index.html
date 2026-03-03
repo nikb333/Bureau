@@ -139,6 +139,19 @@ const getWeekStart = d => { const dt = new Date(d); const day = dt.getDay(); con
 const fmtWeek = d => { const s = getWeekStart(d); const e = new Date(s); e.setDate(e.getDate() + 6); return `${s.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})} – ${e.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}`; };
 const weekKey = d => getWeekStart(d).toISOString().slice(0, 10);
 
+// Build Gmail compose URL for payment confirmation email
+function buildPaymentEmailUrl({poRefs, amount, currency, paymentDate, reference, supplier}) {
+  const poList = (poRefs || []).filter(Boolean);
+  const poDisplay = poList.length ? poList.join(", ") : "N/A";
+  const poHashList = poList.map(r => "#" + r.replace(/^PO-?/i, "")).join(", ");
+  const fmtAmt = (currency || "USD") + " " + Number(amount || 0).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const dateParts = (paymentDate || "").split("-");
+  const fmtDt = dateParts.length === 3 ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` : paymentDate || "";
+  const subject = `Bureau - Payment Confirmation - ${poDisplay}`;
+  const body = `Hi${supplier ? " " + supplier : ""},\n\nI'm writing to confirm that payment for Purchase Order${poList.length > 1 ? "s" : ""} ${poHashList || poDisplay} has been processed.\nPlease find the payment receipt/remittance attached.\n\nPayment details:\n- Amount: ${fmtAmt}\n- Date of payment: ${fmtDt}\n- Payment method: Bank transfer${reference ? "\n- Reference number: " + reference : ""}\n\nKindly confirm once the funds have been received.\n\nBest regards`;
+  return `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 // API helpers
 async function parseApiError(r, fallback){
   const raw = await r.text();
@@ -711,6 +724,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const[activeIdx,setActiveIdx]=useState(-1); // which item is being reviewed
   const[st,setSt]=useState("idle"); // "idle"|"processing"|"review"|"done"
   const[error,setError]=useState(null);
+  const[lastRemittance,setLastRemittance]=useState(null); // stores data for email confirmation
   const empty=dt=>(dt==="purchase_order"||dt==="commercial_invoice")?{doc_type:dt,supplier:"",po_reference:"",invoice_number:"",po_date:"",destination_region:"",currency:"USD",deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"freight_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
 
   // Extract short PO number from long reference strings
@@ -802,6 +816,10 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
           const uniqueRefs=[...new Set(allocs.map(a=>a.ref))];
           await Promise.all(uniqueRefs.map(ref=>apiUploadFile(file,ref,uploadMeta).catch(e=>({error:true,ref,msg:e.message}))));
         }
+        // Store remittance details for email confirmation
+        const poRefs=[...new Set(allocs.map(a=>a.ref))];
+        const supplierNames=[...new Set(allocs.map(a=>a.supplier).filter(Boolean))];
+        setLastRemittance({poRefs,amount:+(d.amount)||0,currency:d.currency||"USD",paymentDate:d.payment_date||"",reference:d.reference||"",supplier:supplierNames.join(", ")});
       }
       else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt||"freight_invoice",docDate:d.invoice_date||d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
       setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"done"}:x));
@@ -818,7 +836,9 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
       // All done — refresh and reset
       if(onRefresh)await onRefresh();
       setSt("done");
-      setTimeout(()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);},2000);
+      // If no remittance was saved, auto-dismiss after 2s
+      const hasRemittance=queue.some(x=>x.docType==="remittance"&&x.status==="done");
+      if(!hasRemittance)setTimeout(()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);setLastRemittance(null);},2000);
     }
   };
 
@@ -832,7 +852,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const setActiveEd=ed=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,ed}:x));
   const setActiveDocType=dt=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,docType:dt}:x));
 
-  const reset=()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);};
+  const reset=()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);setLastRemittance(null);};
 
   if(st==="idle")return <DropZone compact onFiles={handleFiles} label="Drop documents to upload and parse (multiple supported)"/>;
 
@@ -842,7 +862,28 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
     </div>
   </div>;
 
-  if(st==="done")return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{queue.filter(x=>x.status==="done").length} document{queue.filter(x=>x.status==="done").length>1?"s":""} saved</span></div>;
+  if(st==="done"){
+    const doneCount=queue.filter(x=>x.status==="done").length;
+    const dismissAll=()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);setLastRemittance(null);};
+    if(lastRemittance){
+      const emailUrl=buildPaymentEmailUrl(lastRemittance);
+      return <div style={{padding:16,background:"var(--s2)",borderRadius:"var(--r2)",border:"1px solid var(--bd)"}}>
+        <div className="il-d" style={{marginBottom:12}}><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{doneCount} document{doneCount>1?"s":""} saved</span></div>
+        <div style={{padding:14,background:"var(--wh)",borderRadius:"var(--r)",border:"1px solid var(--bd)",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:"var(--tx)"}}>Send payment confirmation email?</div>
+          <div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>PO{lastRemittance.poRefs.length>1?"s":""}: <span style={{fontWeight:600}}>{lastRemittance.poRefs.join(", ")}</span></div>
+          <div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>Amount: <span className="mono" style={{fontWeight:600}}>{lastRemittance.currency} {Number(lastRemittance.amount).toLocaleString("en-US",{minimumFractionDigits:2})}</span></div>
+          {lastRemittance.reference&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>Ref: <span style={{fontWeight:600}}>{lastRemittance.reference}</span></div>}
+          {lastRemittance.supplier&&<div style={{fontSize:12,color:"var(--tx2)"}}>Supplier: <span style={{fontWeight:600}}>{lastRemittance.supplier}</span></div>}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <a href={emailUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{flex:1,textAlign:"center",textDecoration:"none"}} onClick={()=>setTimeout(dismissAll,500)}>Draft Email in Gmail</a>
+          <button className="btn" onClick={dismissAll} style={{flex:0,padding:"8px 16px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:6,cursor:"pointer"}}>Skip</button>
+        </div>
+      </div>;
+    }
+    return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{doneCount} document{doneCount>1?"s":""} saved</span></div>;
+  }
 
   if(st==="review"){
     const item=queue[activeIdx];
@@ -869,7 +910,7 @@ function RowUploadModal({order,onClose,onRefresh}){
   const loadingOv=useLoading();
   const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState("document");
   const[parsing,setParsing]=useState(false);const[saving,setSaving]=useState(false);const[error,setError]=useState(null);
-  const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:""});
+  const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:"",reference:""});
   const[createPayment,setCreatePayment]=useState(!(order.depositStatus==="paid"&&order.releaseStatus==="paid"));
   const fRef=useRef();
   const pf=(k,v)=>setPayForm(p=>({...p,[k]:v}));
@@ -881,7 +922,7 @@ function RowUploadModal({order,onClose,onRefresh}){
       setParsing(true);setError(null);
       try{
         const r=await parseDoc(f);
-        setPayForm(p=>({...p,amount:+(r.amount)||p.amount,currency:r.currency||p.currency,date:r.payment_date||p.date,source:r.source_entity||p.source,type:r.payment_type||p.type}));
+        setPayForm(p=>({...p,amount:+(r.amount)||p.amount,currency:r.currency||p.currency,date:r.payment_date||p.date,source:r.source_entity||p.source,type:r.payment_type||p.type,reference:r.reference||p.reference}));
       }catch(e){/* AI parse failed, user fills manually */}
       setParsing(false);
     }
@@ -916,7 +957,7 @@ function RowUploadModal({order,onClose,onRefresh}){
         });
       }
       if(onRefresh)await onRefresh();
-      onClose();
+      if(docType==="remittance"&&createPayment){setSt("email");setSaving(false);}else{onClose();}
     }catch(e){setError("Upload failed: "+e.message);setSaving(false);}finally{loadingOv.hide();}
   };
 
@@ -1022,6 +1063,21 @@ function RowUploadModal({order,onClose,onRefresh}){
           <button className="btn btn-primary" onClick={upload} disabled={saving}>{saving?<><span className="spinner" style={{width:14,height:14,borderWidth:2,marginRight:6}}/>Saving...</>:docType==="remittance"?(createPayment?"Upload & Record Payment":"Upload Supporting Document"):"Upload to Drive"}</button>
         </div>
       </>}
+
+      {st==="email"&&<div>
+        <div className="il-d" style={{marginBottom:12}}><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>Payment recorded for {order.ref}</span></div>
+        <div style={{padding:14,background:"var(--s2)",borderRadius:"var(--r)",border:"1px solid var(--bd)",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Send payment confirmation email?</div>
+          <div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>PO: <span style={{fontWeight:600}}>{order.ref}</span></div>
+          <div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>Amount: <span className="mono" style={{fontWeight:600}}>{payForm.currency} {Number(payForm.amount).toLocaleString("en-US",{minimumFractionDigits:2})}</span></div>
+          {payForm.reference&&<div style={{fontSize:12,color:"var(--tx2)",marginBottom:4}}>Ref: <span style={{fontWeight:600}}>{payForm.reference}</span></div>}
+          <div style={{fontSize:12,color:"var(--tx2)"}}>Supplier: <span style={{fontWeight:600}}>{order.supplier}</span></div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <a href={buildPaymentEmailUrl({poRefs:[order.ref],amount:payForm.amount,currency:payForm.currency,paymentDate:payForm.date,reference:payForm.reference,supplier:order.supplier})} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{flex:1,textAlign:"center",textDecoration:"none"}} onClick={()=>setTimeout(onClose,500)}>Draft Email in Gmail</a>
+          <button className="btn" onClick={onClose} style={{flex:0,padding:"8px 16px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:6,cursor:"pointer"}}>Skip</button>
+        </div>
+      </div>}
     </div>
   </div>;
 }

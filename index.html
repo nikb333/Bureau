@@ -356,7 +356,7 @@ function EditOrderModal({order,onSave,onClose}){
   const[uploadFile,setUploadFile]=useState(null);const[uploading,setUploading]=useState(false);const[uploaded,setUploaded]=useState(false);
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
-  const save=async()=>{setSaving(true);loading.show("Saving changes...");try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
+  const save=async()=>{setSaving(true);loading.show("Saving changes...");try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{region:ed.region,ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});await onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
   const doUpload=async f=>{setUploadFile(f);setUploading(true);loading.show("Uploading document...");try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);loading.hide();}};
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -713,6 +713,20 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
   const[error,setError]=useState(null);
   const empty=dt=>(dt==="purchase_order"||dt==="commercial_invoice")?{doc_type:dt,supplier:"",po_reference:"",invoice_number:"",po_date:"",destination_region:"",currency:"USD",deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"freight_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
 
+  // Extract short PO number from long reference strings
+  // e.g. "HABU20260227HA211" → "PO-211", "GB-241" → "PO-241", "BUR-005" → "PO-005"
+  const extractShortRef=(ref)=>{
+    if(!ref)return ref;
+    if(/^PO-\d+$/i.test(ref))return ref; // already short format
+    // Try to find the last occurrence of a letter prefix + digits pattern
+    const m=ref.match(/(?:HA|GB|US|CA|AU|BUR|E)[\s-]?(\d{2,5})\s*$/i);
+    if(m)return "PO-"+m[1];
+    // Fallback: extract trailing digits if there's a reasonable number
+    const dm=ref.match(/(\d{2,5})\s*$/);
+    if(dm&&ref.length>6)return "PO-"+dm[1];
+    return ref;
+  };
+
   const prepareEdData=(r,dt)=>{
     const edData={...r};
     if((dt==="purchase_order"||dt==="commercial_invoice")&&(r.po_date||r.invoice_date)&&!r.deposit_due){
@@ -722,6 +736,15 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
     const matchedSupplier=SUPPLIERS.find(s=>s.toLowerCase()===(r.supplier||"").toLowerCase())||"";
     if(matchedSupplier)edData.supplier=matchedSupplier;
     if(r.doc_type!=="remittance")edData.notes=matchedSupplier||r.supplier||"";
+    // Ensure short PO ref + full string in invoice
+    if(dt==="purchase_order"||dt==="commercial_invoice"){
+      const rawRef=r.po_reference||"";
+      const shortRef=extractShortRef(rawRef);
+      if(shortRef!==rawRef){
+        edData.po_reference=shortRef;
+        if(!edData.invoice_number)edData.invoice_number=rawRef;
+      }
+    }
     return edData;
   };
 
@@ -1073,7 +1096,7 @@ function OrdersTab({orders,payments,onRefresh}){
       {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("paidAmt")}>Paid{si("paidAmt")}</th><th className="srt" onClick={()=>ts("outstanding")}>Outstanding{si("outstanding")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Docs</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div></div>}
     </div>
 
-    {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{setEditOrder(null);await onRefresh();}} onClose={()=>setEditOrder(null)}/>}
+    {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{await onRefresh();setEditOrder(null);}} onClose={()=>setEditOrder(null)}/>}
     {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}
   </>;
 }

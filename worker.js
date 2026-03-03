@@ -1027,7 +1027,75 @@ export default {
       if (path.startsWith("/api/payments/") && method === "DELETE") {
         const paymentId = decodeURIComponent(path.replace("/api/payments/", ""));
         const token = await getToken(env);
+
+        // Read payment BEFORE deleting so we can reverse its effects on orders
+        const allPayments = await getAllPayments(token, sheetId);
+        const payment = allPayments.find(p => p.id === paymentId);
+
         const result = await deletePayment(token, sheetId, paymentId);
+
+        // Reverse payment effects on linked orders
+        if (payment && payment.orderIds?.length) {
+          const allocs = payment.allocations || {};
+          for (const oid of payment.orderIds) {
+            try {
+              const orders = await getAllOrders(token, sheetId);
+              const order = orders.find(o => o.id === oid);
+              if (!order) continue;
+
+              // Read allocation for this order (support both formats)
+              const allocEntry = allocs[oid];
+              let depAlloc = 0, relAlloc = 0;
+              if (allocEntry && typeof allocEntry === "object" && !Array.isArray(allocEntry)) {
+                depAlloc = +(allocEntry.deposit) || 0;
+                relAlloc = +(allocEntry.release) || 0;
+              } else {
+                const flatAmt = +(allocEntry) || +(payment.amount) || 0;
+                if (payment.type === "Deposit" || payment.type === "Full Amount") depAlloc = flatAmt;
+                if (payment.type === "Release" || payment.type === "Full Amount") relAlloc = flatAmt;
+              }
+
+              const updates = {};
+
+              // Decrement deposit paid amount
+              if (depAlloc > 0.01) {
+                const newPaidAmt = Math.max((order.depositPaidAmt || 0) - depAlloc, 0);
+                updates.depositPaidAmt = +newPaidAmt.toFixed(2);
+                const invoiceAmt = order.depositAmt || 0;
+                if (invoiceAmt > 0 && newPaidAmt >= invoiceAmt - 0.01) {
+                  updates.depositStatus = "paid";
+                } else if (newPaidAmt > 0.01) {
+                  updates.depositStatus = "partial";
+                } else {
+                  updates.depositStatus = order.depositDue ? "due" : "unpaid";
+                  updates.depositPaid = "";
+                }
+              }
+
+              // Decrement release paid amount
+              if (relAlloc > 0.01) {
+                const newPaidAmt = Math.max((order.releasePaidAmt || 0) - relAlloc, 0);
+                updates.releasePaidAmt = +newPaidAmt.toFixed(2);
+                const invoiceAmt = order.releaseAmt || 0;
+                if (invoiceAmt > 0 && newPaidAmt >= invoiceAmt - 0.01) {
+                  updates.releaseStatus = "paid";
+                } else if (newPaidAmt > 0.01) {
+                  updates.releaseStatus = "partial";
+                } else {
+                  updates.releaseStatus = order.releaseDue ? "due" : "unpaid";
+                  updates.releasePaid = "";
+                }
+              }
+
+              if (Object.keys(updates).length > 0) {
+                await updateOrder(token, sheetId, oid, updates);
+              }
+            } catch (e) {
+              console.error(`Failed to reverse payment for order ${oid}:`, e.message);
+            }
+          }
+        }
+
         return json(result, 200, origin);
       }
 
@@ -1255,6 +1323,25 @@ Hints for destination_region: GB prefix=UK, US=US, CA=CA, AU/E=AU.`;
           else if (n.includes("commercial invoice")) docTypesMap[fid].ci = true;
           else if (n.includes("remittance")) docTypesMap[fid].rem = true;
         });
+        // Reconcile: recalculate order paid amounts from actual payments
+        const paidTotals = {}; // {orderId: {deposit: sum, release: sum}}
+        payments.forEach(p => {
+          const allocs = p.allocations || {};
+          (p.orderIds || []).forEach(oid => {
+            if (!paidTotals[oid]) paidTotals[oid] = { deposit: 0, release: 0 };
+            const allocEntry = allocs[oid];
+            if (allocEntry && typeof allocEntry === "object" && !Array.isArray(allocEntry)) {
+              paidTotals[oid].deposit += +(allocEntry.deposit) || 0;
+              paidTotals[oid].release += +(allocEntry.release) || 0;
+            } else {
+              const flatAmt = +(allocEntry) || +(p.amount) || 0;
+              if (p.type === "Deposit" || p.type === "Full Amount") paidTotals[oid].deposit += flatAmt;
+              if (p.type === "Release" || p.type === "Full Amount") paidTotals[oid].release += flatAmt;
+            }
+          });
+        });
+
+        const staleUpdates = []; // track orders needing sheet updates
         orders.forEach(o => {
           if (!o.driveFolderId) {
             const folder = folderMap[o.id];
@@ -1263,10 +1350,57 @@ Hints for destination_region: GB prefix=UK, US=US, CA=CA, AU/E=AU.`;
           if (o.driveFolderId && docTypesMap[o.driveFolderId]) {
             o.docs = docTypesMap[o.driveFolderId];
           }
+
+          // Reconcile paid amounts from actual payments
+          const totals = paidTotals[o.id] || { deposit: 0, release: 0 };
+          const reconDepPaid = +totals.deposit.toFixed(2);
+          const reconRelPaid = +totals.release.toFixed(2);
+          const curDepPaid = +(o.depositPaidAmt) || 0;
+          const curRelPaid = +(o.releasePaidAmt) || 0;
+
+          // Detect drift: if stored values don't match actual payment sums
+          if (Math.abs(reconDepPaid - curDepPaid) > 0.01 || Math.abs(reconRelPaid - curRelPaid) > 0.01) {
+            o.depositPaidAmt = reconDepPaid;
+            o.releasePaidAmt = reconRelPaid;
+            // Recalculate statuses
+            const depInv = o.depositAmt || 0;
+            if (depInv > 0 && reconDepPaid >= depInv - 0.01) o.depositStatus = "paid";
+            else if (reconDepPaid > 0.01) o.depositStatus = "partial";
+            else if (o.depositDue) o.depositStatus = "due";
+            else o.depositStatus = "unpaid";
+            const relInv = o.releaseAmt || 0;
+            if (relInv > 0 && reconRelPaid >= relInv - 0.01) o.releaseStatus = "paid";
+            else if (reconRelPaid > 0.01) o.releaseStatus = "partial";
+            else if (o.releaseDue) o.releaseStatus = "due";
+            else o.releaseStatus = "unpaid";
+            staleUpdates.push(o);
+          }
         });
+
+        // Persist reconciled values back to sheet in background (don't block response)
+        if (staleUpdates.length > 0) {
+          const updatePromise = (async () => {
+            for (const o of staleUpdates) {
+              try {
+                await updateOrder(token, sheetId, o.id, {
+                  depositPaidAmt: o.depositPaidAmt,
+                  releasePaidAmt: o.releasePaidAmt,
+                  depositStatus: o.depositStatus,
+                  releaseStatus: o.releaseStatus,
+                  depositPaid: o.depositPaidAmt > 0.01 ? (o.depositPaid || "") : "",
+                  releasePaid: o.releasePaidAmt > 0.01 ? (o.releasePaid || "") : "",
+                });
+              } catch (e) {
+                console.error(`Reconcile failed for ${o.id}:`, e.message);
+              }
+            }
+          })();
+          ctx.waitUntil(updatePromise);
+        }
+
         return json({
           orders, payments, folders,
-          meta: { orderCount: orders.length, paymentCount: payments.length, folderCount: folders.length },
+          meta: { orderCount: orders.length, paymentCount: payments.length, folderCount: folders.length, reconciled: staleUpdates.length },
         }, 200, origin);
       }
 

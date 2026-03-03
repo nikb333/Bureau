@@ -37,6 +37,11 @@ th.usd-col{background:#e8edfa;z-index:1}td.usd-col{background:rgba(37,99,235,.05
 .sidebar-upload{padding:8px}.sidebar-upload-btn{display:flex;align-items:center;gap:8px;width:100%;padding:12px 14px;border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:600;color:var(--ac);background:linear-gradient(135deg,var(--acl),#e8efff);border:2px dashed var(--ac);transition:all .15s;font-family:'DM Sans',sans-serif}.sidebar-upload-btn:hover{background:linear-gradient(135deg,#dbe8ff,#d4dfff);border-color:var(--ac2)}
 .us{margin-bottom:24px;background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);padding:20px;box-shadow:var(--sh)}
 .il-p{display:flex;align-items:center;gap:12px;padding:20px;font-size:13px;color:var(--tx2)}.il-d{display:flex;align-items:center;gap:10px;padding:16px;font-size:13px;color:var(--gn);font-weight:600}.err{background:var(--rdb);border:1px solid var(--rdbd);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--rd)}
+.mq{border:1px solid var(--bd);border-radius:var(--r);margin-bottom:12px;overflow:hidden}.mq-h{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--s2);font-size:12px;font-weight:700;color:var(--tx2);border-bottom:1px solid var(--bd)}.mq-h .spinner{width:12px;height:12px;border-width:2px}
+.mq-item{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--s2);font-size:12px;transition:background .15s}.mq-item:last-child{border-bottom:none}.mq-item:hover{background:#f8f9fb}
+.mq-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.mq-done{background:var(--gnb);color:var(--gn)}.mq-active{background:var(--acl);color:var(--ac)}.mq-wait{background:var(--s2);color:var(--tx3)}.mq-err{background:var(--rdb);color:var(--rd)}
+.mq-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mq-status{font-size:11px;color:var(--tx3);white-space:nowrap}
 .rc{background:var(--wh);border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden}
 .rc-h{display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid var(--bd);background:#fafbfc}.rc-t{font-size:16px;font-weight:700}.rc-f{font-size:12px;color:var(--tx3);margin-top:2px}
 .rc-c{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700}.rc-c-high{background:var(--gnb);color:var(--gn)}.rc-c-medium{background:var(--amb);color:var(--am)}.rc-c-low{background:var(--rdb);color:var(--rd)}
@@ -74,13 +79,31 @@ th.usd-col{background:#e8edfa;z-index:1}td.usd-col{background:rgba(37,99,235,.05
 .st{font-size:14px;font-weight:700;margin:24px 0 14px;display:flex;align-items:center;gap:8px}
 .loading-screen{display:flex;align-items:center;justify-content:center;height:100vh;gap:16px;flex-direction:column}
 .loading-screen .spinner{width:32px;height:32px;border-width:3px}
+.loading-overlay{position:fixed;top:0;left:0;right:0;z-index:9999;pointer-events:none;animation:lov-in .3s ease}
+.loading-overlay-bar{height:3px;background:linear-gradient(90deg,var(--ac),#818cf8,var(--ac));background-size:200% 100%;animation:lov-slide 1.2s linear infinite;border-radius:0 0 2px 2px}
+.loading-overlay-msg{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--wh);border:1px solid var(--bd);border-radius:8px;padding:8px 18px;box-shadow:0 4px 16px rgba(0,0,0,.1);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--tx);white-space:nowrap;pointer-events:auto}
+@keyframes lov-slide{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes lov-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:900px){.sidebar{width:56px}.sidebar-logo h1,.sidebar-logo span,.ni span:not(.nic){display:none}.ni{justify-content:center;padding:12px}.mn{padding:16px}.sg{grid-template-columns:1fr 1fr}.rr{flex-direction:column;align-items:flex-start;gap:4px;padding:10px 16px}.rr-s{width:auto}.rr-l{width:auto}.rr-i{width:100%}.filter-bar{flex-direction:column;gap:8px}.filter-search{width:100%}.wk-header{flex-direction:column;align-items:flex-start;gap:4px}.sidebar-upload-btn span:last-child{display:none}.sidebar-upload-btn{justify-content:center;padding:10px}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel" data-type="module">
-const { useState, useRef, useMemo, useEffect, useCallback } = React;
+const { useState, useRef, useMemo, useEffect, useCallback, useContext, createContext } = React;
+
+// Global loading overlay context
+const LoadingCtx = createContext({show:()=>{},hide:()=>{}});
+function LoadingOverlayProvider({children}){
+  const[msg,setMsg]=useState(null);
+  const show=useCallback(m=>setMsg(m||"Working..."),[]);
+  const hide=useCallback(()=>setMsg(null),[]);
+  return <LoadingCtx.Provider value={{show,hide}}>
+    {msg&&<div className="loading-overlay"><div className="loading-overlay-bar"/><div className="loading-overlay-msg"><div className="spinner" style={{width:14,height:14,borderWidth:2}}/>{msg}</div></div>}
+    {children}
+  </LoadingCtx.Provider>;
+}
+function useLoading(){return useContext(LoadingCtx);}
 
 const API = "";  // Same-origin — Pages Function proxies /api/* to the Worker
 const ENTITIES = ["AU", "UK", "US", "CA"];
@@ -279,10 +302,35 @@ function fuzzyMatchPO(input, orders, payments) {
   }).filter(o=>o.score>0).sort((a,b)=>b.score-a.score).slice(0,8);
 }
 
+// Compress images before sending to reduce upload size and speed up parsing
+async function compressImage(file, maxDim=1600, quality=0.8) {
+  if (file.type === "application/pdf") return null; // PDFs can't be resized in browser
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let {width:w, height:h} = img;
+      if (w <= maxDim && h <= maxDim && file.size < 500000) { resolve(null); return; } // already small
+      const scale = Math.min(maxDim/w, maxDim/h, 1);
+      w = Math.round(w*scale); h = Math.round(h*scale);
+      const c = document.createElement("canvas"); c.width=w; c.height=h;
+      const ctx = c.getContext("2d"); ctx.drawImage(img,0,0,w,h);
+      c.toBlob(blob => {
+        if (!blob) { resolve(null); return; }
+        resolve(new File([blob], file.name, {type: "image/jpeg"}));
+      }, "image/jpeg", quality);
+    };
+    img.onerror = () => resolve(null);
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 // Doc parser — calls Worker /api/parse (server-side Anthropic call)
 async function parseDoc(file) {
-  const b64=await new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=()=>j(new Error("fail"));x.readAsDataURL(file);});
-  const mediaType=file.type||"application/pdf";
+  // Compress images to speed up upload
+  const compressed = await compressImage(file).catch(()=>null);
+  const sendFile = compressed || file;
+  const b64=await new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=()=>j(new Error("fail"));x.readAsDataURL(sendFile);});
+  const mediaType=sendFile.type||"application/pdf";
   const res=await fetch(API+"/api/parse",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:b64,media_type:mediaType})});
   if (!res.ok) {
     const errText = await res.text();
@@ -303,12 +351,13 @@ function HelpModal({onClose}){return <div style={{position:"fixed",top:0,left:0,
 
 // EditOrderModal
 function EditOrderModal({order,onSave,onClose}){
+  const loading=useLoading();
   const[ed,setEd]=useState({...order});const[saving,setSaving]=useState(false);
   const[uploadFile,setUploadFile]=useState(null);const[uploading,setUploading]=useState(false);const[uploaded,setUploaded]=useState(false);
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
-  const save=async()=>{setSaving(true);try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}};
-  const doUpload=async f=>{setUploadFile(f);setUploading(true);try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);}};
+  const save=async()=>{setSaving(true);loading.show("Saving changes...");try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
+  const doUpload=async f=>{setUploadFile(f);setUploading(true);loading.show("Uploading document...");try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);loading.hide();}};
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h2>Edit Order: {order.ref}</h2>
@@ -654,64 +703,147 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
   </div>;
 }
 
-// InlineUploader
+// InlineUploader — supports multi-file upload with parallel parsing + sequential review
 function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,onRefresh}){
-  const[st,setSt]=useState("idle");const[file,setFile]=useState(null);const[parsed,setParsed]=useState(null);const[ed,setEd]=useState(null);const[docType,setDocType]=useState(defaultDocType);const[error,setError]=useState(null);
+  const loading=useLoading();
+  // Queue: [{file, status:"parsing"|"ready"|"reviewing"|"saving"|"done"|"error", parsed, ed, docType, error}]
+  const[queue,setQueue]=useState([]);
+  const[activeIdx,setActiveIdx]=useState(-1); // which item is being reviewed
+  const[st,setSt]=useState("idle"); // "idle"|"processing"|"review"|"done"
+  const[error,setError]=useState(null);
   const empty=dt=>(dt==="purchase_order"||dt==="commercial_invoice")?{doc_type:dt,supplier:"",po_reference:"",invoice_number:"",po_date:"",destination_region:"",currency:"USD",deposit_amount:0,release_amount:0,notes:"",confidence:"low"}:dt==="remittance"?{doc_type:"remittance",bank_account_hint:"",source_entity:"",payment_date:"",amount:0,currency:"USD",po_references:[""],payment_type:"Deposit",reference:"",notes:"",confidence:"low"}:{doc_type:dt||"freight_invoice",supplier:"",invoice_number:"",po_reference:"",destination_region:"",currency:"USD",total_amount:0,notes:"",confidence:"low"};
-  const handleFiles=async files=>{if(!files.length)return;const f=files[0];setFile(f);setSt("parsing");setError(null);try{const r=await parseDoc(f);setDocType(r.doc_type||defaultDocType);setParsed(r);const edData={...r};if(((r.doc_type||defaultDocType)==="purchase_order"||(r.doc_type||defaultDocType)==="commercial_invoice")&&(r.po_date||r.invoice_date)&&!r.deposit_due){const dt=r.po_date||r.invoice_date;if(!edData.po_date)edData.po_date=dt;edData.deposit_due=dt;const rd=new Date(dt);rd.setDate(rd.getDate()+21);edData.release_due=rd.toISOString().slice(0,10);}/* Normalize supplier to known list (case-insensitive) */const matchedSupplier=SUPPLIERS.find(s=>s.toLowerCase()===(r.supplier||"").toLowerCase())||"";if(matchedSupplier)edData.supplier=matchedSupplier;/* Default notes to supplier name only */if(r.doc_type!=="remittance"){edData.notes=matchedSupplier||r.supplier||"";}setEd(edData);setSt("review");}catch(e){setError("Parse failed: "+e.message);setDocType(defaultDocType);setEd(empty(defaultDocType));setSt("review");}};
-  const confirm=async()=>{const dt=docType,d=ed;setSt("saving");try{
-    if(dt==="purchase_order"||dt==="commercial_invoice"){await apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",depositAmt:+(d.deposit_amount)||0,depositStatus:+(d.deposit_amount)>0?"due":"paid",depositDue:d.deposit_due||"",releaseAmt:+(d.release_amount)||0,releaseStatus:"unpaid",releaseDue:d.release_due||"",poDate:d.po_date||"",notes:d.notes||""});if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt,docDate:d.po_date||new Date().toISOString().slice(0,10),entity:d.destination_region||""});}catch(e){}}
-    else if(dt==="remittance"){
-      const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
-      const allocs=d._allocations||[];
-      const orderIds=[...new Set(allocs.map(a=>a.orderId))];
-      // Build per-stage allocations: {orderId: {deposit: X, release: Y}}
-      const allocations={};
-      allocs.forEach(a=>{
-        if(!allocations[a.orderId])allocations[a.orderId]={deposit:0,release:0};
-        allocations[a.orderId][a.lineType||"release"]+=a.amount;
-      });
 
-      // Payment type: Deposit if all deposits, Release if all releases, Mixed if both
-      const lineTypes=[...new Set(allocs.map(a=>a.lineType).filter(Boolean))];
-      const paymentType=lineTypes.length>1?"Mixed":lineTypes[0]==="deposit"?"Deposit":"Release";
-
-      await apiPost("/api/payments",{
-        orderIds,
-        allocations,
-        bankAccount:bm[d.bank_account_hint]||"us-chase",
-        sourceEntity:d.source_entity||"US",
-        amount:+(d.amount)||0,
-        currency:d.currency||"USD",
-        date:d.payment_date||new Date().toISOString().slice(0,10),
-        type:paymentType,
-        notes:d.notes||"",
-        docName:file?.name
-      });
-
-      // Upload remittance file to ALL allocated PO folders
-      if(file&&allocs.length>0){
-        const uploadMeta={docType:"remittance",docDate:d.payment_date||new Date().toISOString().slice(0,10),entity:d.source_entity||"",bankLabel:d.bank_account_hint||""};
-        const uniqueRefs=[...new Set(allocs.map(a=>a.ref))];
-        const uploadResults=await Promise.all(uniqueRefs.map(ref=>apiUploadFile(file,ref,uploadMeta).catch(e=>({error:true,ref,msg:e.message}))));
-        const failures=uploadResults.filter(r=>r&&r.error);
-        if(failures.length>0)console.warn("Remittance Drive upload failed for:",failures.map(f=>f.ref).join(", "));
-      }
+  const prepareEdData=(r,dt)=>{
+    const edData={...r};
+    if((dt==="purchase_order"||dt==="commercial_invoice")&&(r.po_date||r.invoice_date)&&!r.deposit_due){
+      const d=r.po_date||r.invoice_date;if(!edData.po_date)edData.po_date=d;edData.deposit_due=d;
+      const rd=new Date(d);rd.setDate(rd.getDate()+21);edData.release_due=rd.toISOString().slice(0,10);
     }
-    else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt||"freight_invoice",docDate:d.invoice_date||d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
-    if(onRefresh)await onRefresh();setSt("done");setTimeout(()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);setError(null);},2000);
-  }catch(e){setError("Save failed: "+e.message);setSt("review");}};
-  const reset=()=>{setSt("idle");setFile(null);setParsed(null);setEd(null);};
-  if(st==="idle")return <DropZone compact onFiles={handleFiles} label="Drop a document to upload and parse"/>;
-  if(st==="parsing")return <div className="il-p"><div className="spinner"/><span>Parsing {file?.name}...</span></div>;
-  if(st==="saving")return <div className="il-p"><div className="spinner"/><span>Saving...</span></div>;
-  if(st==="done")return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>Saved</span></div>;
-  if(st==="review"&&docType==="remittance")return <>{error&&<div className="err">{error}</div>}<RemittanceAllocationUI parsed={parsed} ed={ed} setEd={setEd} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
-  return <>{error&&<div className="err">{error}</div>}<ReviewScreen parsed={parsed} ed={ed} setEd={setEd} docType={docType} onChangeDocType={setDocType} onConfirm={confirm} onCancel={reset} fileName={file?.name} orders={orders} payments={payments}/></>;
+    const matchedSupplier=SUPPLIERS.find(s=>s.toLowerCase()===(r.supplier||"").toLowerCase())||"";
+    if(matchedSupplier)edData.supplier=matchedSupplier;
+    if(r.doc_type!=="remittance")edData.notes=matchedSupplier||r.supplier||"";
+    return edData;
+  };
+
+  const handleFiles=async files=>{
+    if(!files.length)return;
+    setError(null);
+    const items=Array.from(files).map(f=>({file:f,status:"parsing",parsed:null,ed:null,docType:defaultDocType,error:null}));
+    setQueue(items);
+    setSt("processing");
+    // Parse all files in parallel
+    const results=await Promise.allSettled(items.map(async(item)=>{
+      const r=await parseDoc(item.file);
+      return r;
+    }));
+    const updated=items.map((item,i)=>{
+      if(results[i].status==="fulfilled"){
+        const r=results[i].value;
+        const dt=r.doc_type||defaultDocType;
+        return{...item,status:"ready",parsed:r,docType:dt,ed:prepareEdData(r,dt)};
+      }else{
+        return{...item,status:"ready",parsed:null,docType:defaultDocType,ed:empty(defaultDocType),error:"Parse failed: "+results[i].reason?.message};
+      }
+    });
+    setQueue(updated);
+    // Start reviewing first item
+    setActiveIdx(0);
+    setSt("review");
+  };
+
+  const confirmCurrent=async()=>{
+    const item=queue[activeIdx];
+    if(!item)return;
+    const dt=item.docType,d=item.ed,file=item.file;
+    // Update queue status
+    setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"saving"}:x));
+    loading.show("Saving "+file.name+"...");
+    try{
+      if(dt==="purchase_order"||dt==="commercial_invoice"){
+        const orderPromise=apiPost("/api/orders",{region:d.destination_region||"US",ref:d.po_reference||"",inv:d.invoice_number||"",supplier:d.supplier||"",currency:d.currency||"USD",depositAmt:+(d.deposit_amount)||0,depositStatus:+(d.deposit_amount)>0?"due":"paid",depositDue:d.deposit_due||"",releaseAmt:+(d.release_amount)||0,releaseStatus:"unpaid",releaseDue:d.release_due||"",poDate:d.po_date||"",notes:d.notes||""});
+        // Start upload in parallel with save
+        const uploadPromise=file&&d.po_reference?apiUploadFile(file,d.po_reference,{docType:dt,docDate:d.po_date||new Date().toISOString().slice(0,10),entity:d.destination_region||""}).catch(()=>null):Promise.resolve(null);
+        await Promise.all([orderPromise,uploadPromise]);
+      }
+      else if(dt==="remittance"){
+        const bm={"AU-NAB":"au-nab","UK-HSBC":"uk-hsbc","US-Chase":"us-chase","CA-RBC":"ca-rbc"};
+        const allocs=d._allocations||[];
+        const orderIds=[...new Set(allocs.map(a=>a.orderId))];
+        const allocations={};
+        allocs.forEach(a=>{if(!allocations[a.orderId])allocations[a.orderId]={deposit:0,release:0};allocations[a.orderId][a.lineType||"release"]+=a.amount;});
+        const lineTypes=[...new Set(allocs.map(a=>a.lineType).filter(Boolean))];
+        const paymentType=lineTypes.length>1?"Mixed":lineTypes[0]==="deposit"?"Deposit":"Release";
+        await apiPost("/api/payments",{orderIds,allocations,bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:paymentType,notes:d.notes||"",docName:file?.name});
+        if(file&&allocs.length>0){
+          const uploadMeta={docType:"remittance",docDate:d.payment_date||new Date().toISOString().slice(0,10),entity:d.source_entity||"",bankLabel:d.bank_account_hint||""};
+          const uniqueRefs=[...new Set(allocs.map(a=>a.ref))];
+          await Promise.all(uniqueRefs.map(ref=>apiUploadFile(file,ref,uploadMeta).catch(e=>({error:true,ref,msg:e.message}))));
+        }
+      }
+      else{if(file&&d.po_reference)try{await apiUploadFile(file,d.po_reference,{docType:dt||"freight_invoice",docDate:d.invoice_date||d.po_date||new Date().toISOString().slice(0,10)});}catch(e){}}
+      setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"done"}:x));
+    }catch(e){
+      setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"ready",error:"Save failed: "+e.message}:x));
+      loading.hide();
+      return; // stay on this item so user can retry
+    }
+    loading.hide();
+    // Move to next item or finish
+    const nextIdx=queue.findIndex((x,i)=>i>activeIdx&&x.status!=="done");
+    if(nextIdx>=0){setActiveIdx(nextIdx);}
+    else{
+      // All done — refresh and reset
+      if(onRefresh)await onRefresh();
+      setSt("done");
+      setTimeout(()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);},2000);
+    }
+  };
+
+  const skipCurrent=()=>{
+    setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"done"}:x));
+    const nextIdx=queue.findIndex((x,i)=>i>activeIdx&&x.status!=="done");
+    if(nextIdx>=0){setActiveIdx(nextIdx);}
+    else{setSt("idle");setQueue([]);setActiveIdx(-1);}
+  };
+
+  const setActiveEd=ed=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,ed}:x));
+  const setActiveDocType=dt=>setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,docType:dt}:x));
+
+  const reset=()=>{setSt("idle");setQueue([]);setActiveIdx(-1);setError(null);};
+
+  if(st==="idle")return <DropZone compact onFiles={handleFiles} label="Drop documents to upload and parse (multiple supported)"/>;
+
+  if(st==="processing")return <div>
+    <div className="mq"><div className="mq-h"><div className="spinner"/>Parsing {queue.length} document{queue.length>1?"s":""}...</div>
+    {queue.map((item,i)=><div key={i} className="mq-item"><div className={"mq-icon "+(item.status==="ready"?"mq-done":"mq-active")}>{item.status==="ready"?"✓":"…"}</div><div className="mq-name">{item.file.name}</div><div className="mq-status">{item.status==="ready"?"Ready":"Parsing..."}</div></div>)}
+    </div>
+  </div>;
+
+  if(st==="done")return <div className="il-d"><span className="ci ci-h" style={{width:28,height:28,fontSize:16}}>✓</span><span>{queue.filter(x=>x.status==="done").length} document{queue.filter(x=>x.status==="done").length>1?"s":""} saved</span></div>;
+
+  if(st==="review"){
+    const item=queue[activeIdx];
+    if(!item)return null;
+    const doneCount=queue.filter(x=>x.status==="done").length;
+    const totalCount=queue.length;
+    const multiHeader=totalCount>1?<div className="mq" style={{marginBottom:12}}>
+      <div className="mq-h">Reviewing {activeIdx+1} of {totalCount} ({doneCount} saved)</div>
+      {queue.map((q,i)=><div key={i} className="mq-item" style={{background:i===activeIdx?"var(--acl)":"inherit"}}>
+        <div className={"mq-icon "+(q.status==="done"?"mq-done":i===activeIdx?"mq-active":q.error?"mq-err":"mq-wait")}>{q.status==="done"?"✓":i===activeIdx?"▸":q.error?"!":"·"}</div>
+        <div className="mq-name" style={{fontWeight:i===activeIdx?700:400}}>{q.file.name}</div>
+        <div className="mq-status">{q.status==="done"?"Saved":q.status==="saving"?"Saving...":i===activeIdx?"Reviewing":q.error?"Error":"Waiting"}</div>
+      </div>)}
+    </div>:null;
+
+    if(item.docType==="remittance")return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<RemittanceAllocationUI parsed={item.parsed} ed={item.ed} setEd={setActiveEd} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} fileName={item.file?.name} orders={orders} payments={payments}/></>;
+    return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<ReviewScreen parsed={item.parsed} ed={item.ed} setEd={setActiveEd} docType={item.docType} onChangeDocType={setActiveDocType} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} fileName={item.file?.name} orders={orders} payments={payments}/></>;
+  }
+  return null;
 }
 
 // RowUploadModal — per-PO upload: doc goes to Drive, optional payment record
 function RowUploadModal({order,onClose,onRefresh}){
+  const loadingOv=useLoading();
   const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState("document");
   const[parsing,setParsing]=useState(false);const[saving,setSaving]=useState(false);const[error,setError]=useState(null);
   const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:""});
@@ -734,7 +866,7 @@ function RowUploadModal({order,onClose,onRefresh}){
   };
 
   const upload=async()=>{
-    setSaving(true);setError(null);
+    setSaving(true);setError(null);loadingOv.show("Uploading to "+order.ref+"...");
     try{
       // Always upload file to this PO's Drive folder
       if(file&&order.ref){
@@ -762,7 +894,7 @@ function RowUploadModal({order,onClose,onRefresh}){
       }
       if(onRefresh)await onRefresh();
       onClose();
-    }catch(e){setError("Upload failed: "+e.message);setSaving(false);}
+    }catch(e){setError("Upload failed: "+e.message);setSaving(false);}finally{loadingOv.hide();}
   };
 
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}>
@@ -898,10 +1030,11 @@ function ordersToLineItems(orders){
 
 // Tabs
 function OrdersTab({orders,payments,onRefresh}){
+  const loading=useLoading();
   const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fAge,setFAge]=useState("6M");
   const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);const[showPaid,setShowPaid]=useState(false);
   const[editOrder,setEditOrder]=useState(null);const[uploadFor,setUploadFor]=useState(null);
-  const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
+  const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;loading.show("Deleting "+order.ref+"...");try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}finally{loading.hide();}};
   const allItems=ordersToLineItems(orders);
   const baseFiltered=allItems.filter(item=>{if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
   const sortItems=items=>[...items].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="usdEquiv")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="paidAmt")return(toUSD(a.linePaidAmt||0,a.currency)-toUSD(b.linePaidAmt||0,b.currency))*d;if(sort.key==="outstanding")return(toUSD(a.lineOutstanding||0,a.currency)-toUSD(b.lineOutstanding||0,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paidDate")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;if(sort.key==="status"){const sv=s=>s==="paid"?0:s==="due"?1:s==="overdue"?2:3;return(sv(a.lineStatus)-sv(b.lineStatus))*d;}return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
@@ -945,10 +1078,11 @@ function OrdersTab({orders,payments,onRefresh}){
   </>;
 }
 function PaymentsTab({orders,payments,onRefresh}){
+  const loading=useLoading();
   const[showUp,setShowUp]=useState(false);const[fR,setFR]=useState("all");const[search,setSearch]=useState("");const[fPeriod,setFPeriod]=useState("6M");
   const[sort,setSort]=useState({key:"date",dir:"desc"});
   const go=id=>orders.find(o=>o.id===id);
-  const deletePayment=async(payment)=>{if(!confirm(`Delete payment ${payment.id}? This cannot be undone.`))return;try{await apiDelete(`/api/payments/${encodeURIComponent(payment.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}};
+  const deletePayment=async(payment)=>{if(!confirm(`Delete payment ${payment.id}? This cannot be undone.`))return;loading.show("Deleting payment...");try{await apiDelete(`/api/payments/${encodeURIComponent(payment.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}finally{loading.hide();}};
   const fl=payments.filter(p=>{if(fPeriod!=="all"){const months=fPeriod==="1M"?1:fPeriod==="3M"?3:fPeriod==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const pDate=p.date?new Date(p.date):null;if(pDate&&pDate<cutoff)return false;}if(fR!=="all"&&p.sourceEntity!==fR)return false;if(search){const refs=(p.orderIds||[]).map(id=>go(id)?.ref||"").join(" ");return(refs+" "+(p.docName||"")+" "+(p.notes||"")).toLowerCase().includes(search.toLowerCase());}return true;});
   const sorted=[...fl].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="date")return(new Date(a.date||0)-new Date(b.date||0))*d;if(sort.key==="amount")return(toUSD(a.amount,a.currency)-toUSD(b.amount,b.currency))*d;if(sort.key==="source")return((a.sourceEntity||"")>(b.sourceEntity||"")?1:-1)*d;if(sort.key==="type")return((a.type||"")>(b.type||"")?1:-1)*d;if(sort.key==="po"){const ar=(a.orderIds||[]).map(id=>go(id)?.ref||"").join(",");const br=(b.orderIds||[]).map(id=>go(id)?.ref||"").join(",");return(ar>br?1:-1)*d;}if(sort.key==="bank")return((a.bankAccount||"")>(b.bankAccount||"")?1:-1)*d;if(sort.key==="ic"){const aIC=(a.orderIds||[]).some(oid=>{const o=go(oid);return o&&a.sourceEntity!==o.region;});const bIC=(b.orderIds||[]).some(oid=>{const o=go(oid);return o&&b.sourceEntity!==o.region;});return((aIC?1:0)-(bIC?1:0))*d;}return 0;});
   const tot=sorted.reduce((s,p)=>s+toUSD(p.amount,p.currency),0);
@@ -1004,10 +1138,11 @@ function ForecastTab({orders}){
 
 // App
 function App(){
+  const overlay=useLoading();
   const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);const[showHelp,setShowHelp]=useState(false);
   const loadData=useCallback(async()=>{try{setLoading(true);setError(null);const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){setError(e.message);}finally{setLoading(false);};},[]);
   useEffect(()=>{loadData();},[loadData]);
-  const refresh=useCallback(async()=>{try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}},[]);
+  const refresh=useCallback(async()=>{overlay.show("Refreshing data...");try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}finally{overlay.hide();}},[overlay]);
   if(loading)return <div className="loading-screen"><div className="spinner"/><span style={{fontSize:15,color:"var(--tx2)"}}>Loading Bureau Ops...</span></div>;
   if(error)return <div className="loading-screen"><div style={{fontSize:48}}>⚠️</div><div style={{fontSize:15,color:"var(--rd)",maxWidth:400,textAlign:"center"}}>{error}</div><button className="btn btn-primary" onClick={loadData}>Retry</button></div>;
   return <div className="app">
@@ -1026,7 +1161,7 @@ function App(){
   </div>;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById("root")).render(<LoadingOverlayProvider><App/></LoadingOverlayProvider>);
 </script>
 </body>
 </html>

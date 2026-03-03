@@ -375,7 +375,8 @@ function EditOrderModal({order,onSave,onClose}){
   const[uploadFile,setUploadFile]=useState(null);const[uploading,setUploading]=useState(false);const[uploaded,setUploaded]=useState(false);
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
-  const save=async()=>{setSaving(true);loading.show("Saving changes...");try{await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{region:ed.region,ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:ed.depositStatus,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:ed.releaseStatus,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});await onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
+  const deriveStatus=(paidDate,dueDate,currentStatus)=>paidDate?"paid":dueDate?"due":currentStatus==="paid"?"paid":"unpaid";
+  const save=async()=>{setSaving(true);loading.show("Saving changes...");try{const depSt=deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus);const relSt=deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus);await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{region:ed.region,ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:depSt,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:relSt,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});await onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
   const doUpload=async f=>{setUploadFile(f);setUploading(true);loading.show("Uploading document...");try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);loading.hide();}};
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
@@ -383,19 +384,20 @@ function EditOrderModal({order,onSave,onClose}){
       {order.driveFolderId&&<a href={GDRIVE_BASE+order.driveFolderId} target="_blank" rel="noopener" style={{fontSize:12,color:"var(--ac)",textDecoration:"none",fontWeight:600}}>📁 Open Drive Folder</a>}
     </div>
     <div style={{display:"grid",gap:12}}>
+      <label>Region: <select className="ri" value={ed.region||""} onChange={e=>sf("region",e.target.value)}><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></label>
       <label>PO Ref: <input className="ri" value={ed.ref||""} onChange={e=>sf("ref",e.target.value)}/></label>
       <label>Invoice: <input className="ri" value={ed.inv||""} onChange={e=>sf("inv",e.target.value)}/></label>
       <label>Supplier: <select className="ri" value={ed.supplier||""} onChange={e=>sf("supplier",e.target.value)}><option value="">Select...</option>{SUPPLIERS.map(s=><option key={s}>{s}</option>)}</select></label>
       <label>PO Date: <input className="ri" type="date" value={ed.poDate||""} onChange={e=>sf("poDate",e.target.value)}/></label>
       <label>Currency: <select className="ri" value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></label>
-      <label>Deposit Amount: <input className="ri" type="number" step="0.01" value={ed.depositAmt||0} onChange={e=>sf("depositAmt",e.target.value)}/></label>
-      <label>Deposit Status: <select className="ri" value={ed.depositStatus||"unpaid"} onChange={e=>sf("depositStatus",e.target.value)}><option>unpaid</option><option>due</option><option>paid</option></select></label>
-      <label>Deposit Due: <input className="ri" type="date" value={ed.depositDue||""} onChange={e=>sf("depositDue",e.target.value)}/></label>
-      <label>Deposit Paid: <input className="ri" type="date" value={ed.depositPaid||""} onChange={e=>sf("depositPaid",e.target.value)}/></label>
-      <label>Release Amount: <input className="ri" type="number" step="0.01" value={ed.releaseAmt||0} onChange={e=>sf("releaseAmt",e.target.value)}/></label>
-      <label>Release Status: <select className="ri" value={ed.releaseStatus||"unpaid"} onChange={e=>sf("releaseStatus",e.target.value)}><option>unpaid</option><option>due</option><option>paid</option></select></label>
-      <label>Release Due: <input className="ri" type="date" value={ed.releaseDue||""} onChange={e=>sf("releaseDue",e.target.value)}/></label>
-      <label>Release Paid: <input className="ri" type="date" value={ed.releasePaid||""} onChange={e=>sf("releasePaid",e.target.value)}/></label>
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Deposit <StatusBadge status={deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus)} dueDate={ed.depositDue}/></div>
+      <label>Amount: <input className="ri" type="number" step="0.01" value={ed.depositAmt||0} onChange={e=>sf("depositAmt",e.target.value)}/></label>
+      <label>Due Date: <input className="ri" type="date" value={ed.depositDue||""} onChange={e=>sf("depositDue",e.target.value)}/></label>
+      <label>Paid Date: <input className="ri" type="date" value={ed.depositPaid||""} onChange={e=>sf("depositPaid",e.target.value)}/></label>
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Release <StatusBadge status={deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus)} dueDate={ed.releaseDue}/></div>
+      <label>Amount: <input className="ri" type="number" step="0.01" value={ed.releaseAmt||0} onChange={e=>sf("releaseAmt",e.target.value)}/></label>
+      <label>Due Date: <input className="ri" type="date" value={ed.releaseDue||""} onChange={e=>sf("releaseDue",e.target.value)}/></label>
+      <label>Paid Date: <input className="ri" type="date" value={ed.releasePaid||""} onChange={e=>sf("releasePaid",e.target.value)}/></label>
       <label>Notes: <input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)}/></label>
     </div>
     <div style={{marginTop:16,padding:14,background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>

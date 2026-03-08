@@ -360,6 +360,32 @@ async function parseDoc(file) {
 // Small UI components
 function StatusBadge({status,dueDate}){let l=status,c="badge ";if(status==="due"&&dueDate&&new Date(dueDate)<new Date()){l="overdue";c+="badge-red";}else if(status==="paid")c+="badge-green";else if(status==="partial"){l="partial";c+="badge-blue";}else if(status==="due")c+="badge-amber";else c+="badge-grey";return <span className={c}>{l}</span>;}
 function RegionBadge({region}){return <span className={`region-badge region-${region}`}>{region}</span>;}
+
+// Inline edit cell for table rows — click pen icon to edit, auto-saves on blur/enter
+function InlineEditCell({value,orderId,field,type,options,onSave,displayValue,mono,className,style}){
+  const[editing,setEditing]=useState(false);
+  const[val,setVal]=useState(value||"");
+  const[saving,setSaving]=useState(false);
+  const ref=useRef();
+  useEffect(()=>{setVal(value||"");},[value]);
+  useEffect(()=>{if(editing&&ref.current){ref.current.focus();if(type!=="date"&&type!=="select"&&ref.current.select)ref.current.select();}},  [editing]);
+  const commit=async()=>{
+    if(val===value){setEditing(false);return;}
+    setSaving(true);
+    try{await onSave(orderId,field,val);setEditing(false);}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}
+  };
+  const handleKey=e=>{if(e.key==="Enter")commit();if(e.key==="Escape"){setVal(value||"");setEditing(false);}};
+  if(editing){
+    const inputStyle={fontSize:12,padding:"3px 6px",border:"1px solid var(--ac)",borderRadius:4,outline:"none",fontFamily:mono?"'JetBrains Mono',monospace":"'DM Sans',sans-serif",width:"100%",boxSizing:"border-box"};
+    if(type==="select")return <select ref={ref} value={val} onChange={e=>{setVal(e.target.value);}} onBlur={commit} onKeyDown={handleKey} style={inputStyle}>{(options||[]).map(o=><option key={o} value={o}>{o}</option>)}</select>;
+    return <input ref={ref} type={type||"text"} value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={handleKey} style={inputStyle}/>;
+  }
+  const show=displayValue||value;
+  return <span className={className||""} style={{...style,display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",borderRadius:4,padding:"1px 4px",transition:"background .15s"}} onClick={()=>setEditing(true)} onMouseEnter={e=>e.currentTarget.style.background="var(--s2)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+    <span style={mono?{fontFamily:"'JetBrains Mono',monospace",fontSize:12}:{}}>{show||<span style={{color:"var(--tx3)",fontStyle:"italic",fontSize:11}}>—</span>}</span>
+    {saving?<span className="spinner" style={{width:10,height:10,borderWidth:1.5}}/>:<span style={{fontSize:10,opacity:.25,transition:"opacity .15s"}}>✏️</span>}
+  </span>;
+}
 function ConfIcon({level}){if(level==="high")return <div style={{width:28,height:28}}></div>;if(level==="medium")return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,opacity:.6}}>⚠</div>;return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"var(--rd)",fontWeight:700}}>!</div>;}
 function StaticVal({value,displayValue,mono,children}){const[editing,setEditing]=useState(false);if(editing)return <div style={{display:"flex",gap:6,alignItems:"center"}}><div style={{flex:1}}>{children}</div><button onClick={()=>setEditing(false)} style={{background:"var(--gn)",color:"#fff",border:"none",borderRadius:4,width:28,height:28,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✓</button></div>;const show=displayValue||value;return <div className="sv" onClick={()=>setEditing(true)}>{show?<span className={mono?"sv-val-num":"sv-val"}>{show}</span>:<span className="sv-empty">Not set — click to edit</span>}<span className="sv-pen">✏️</span></div>;}
 function BtnGroup({options,value,onChange,allLabel}){return <div className="btn-group">{allLabel&&<button className={`bg-btn ${value==="all"?"bg-act":""}`} onClick={()=>onChange("all")}>{allLabel}</button>}{options.map(o=><button key={o} className={`bg-btn ${value===o?"bg-act":""}`} onClick={()=>onChange(value===o?"all":o)}>{o}</button>)}</div>;}
@@ -373,11 +399,34 @@ function EditOrderModal({order,onSave,onClose}){
   const loading=useLoading();
   const[ed,setEd]=useState({...order});const[saving,setSaving]=useState(false);
   const[uploadFile,setUploadFile]=useState(null);const[uploading,setUploading]=useState(false);const[uploaded,setUploaded]=useState(false);
+  const[markPaidNote,setMarkPaidNote]=useState("");const[markPaidTarget,setMarkPaidTarget]=useState(null);
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   const deriveStatus=(paidDate,dueDate,currentStatus)=>paidDate?"paid":dueDate?"due":currentStatus==="paid"?"paid":"unpaid";
   const save=async()=>{setSaving(true);loading.show("Saving changes...");try{const depSt=deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus);const relSt=deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus);await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{region:ed.region,ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:depSt,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:relSt,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});await onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
+  const markPaid=async(target)=>{
+    if(!markPaidNote.trim()){alert("Please add a note explaining why this is being manually marked as paid.");return;}
+    setSaving(true);loading.show(`Marking ${target} as paid...`);
+    const today=new Date().toISOString().slice(0,10);
+    const notePrefix=`[Manual mark paid - ${target}] `;
+    const newNotes=((ed.notes||"")?(ed.notes+"; "):"")+notePrefix+markPaidNote.trim();
+    try{
+      const patch={notes:newNotes};
+      if(target==="deposit"||target==="both"){patch.depositStatus="paid";patch.depositPaid=ed.depositPaid||today;}
+      if(target==="release"||target==="both"){patch.releaseStatus="paid";patch.releasePaid=ed.releasePaid||today;}
+      await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,patch);
+      sf("notes",newNotes);
+      if(target==="deposit"||target==="both"){sf("depositStatus","paid");sf("depositPaid",ed.depositPaid||today);}
+      if(target==="release"||target==="both"){sf("releaseStatus","paid");sf("releasePaid",ed.releasePaid||today);}
+      setMarkPaidTarget(null);setMarkPaidNote("");
+      await onSave();
+    }catch(e){alert("Mark paid failed: "+e.message);}finally{setSaving(false);loading.hide();}
+  };
   const doUpload=async f=>{setUploadFile(f);setUploading(true);loading.show("Uploading document...");try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);loading.hide();}};
+  const depStatus=deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus);
+  const relStatus=deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus);
+  const depUnpaid=depStatus!=="paid"&&+(ed.depositAmt)>0;
+  const relUnpaid=relStatus!=="paid"&&+(ed.releaseAmt)>0;
   return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
       <h2>Edit Order: {order.ref}</h2>
@@ -390,14 +439,27 @@ function EditOrderModal({order,onSave,onClose}){
       <label>Supplier: <select className="ri" value={ed.supplier||""} onChange={e=>sf("supplier",e.target.value)}><option value="">Select...</option>{SUPPLIERS.map(s=><option key={s}>{s}</option>)}</select></label>
       <label>PO Date: <input className="ri" type="date" value={ed.poDate||""} onChange={e=>sf("poDate",e.target.value)}/></label>
       <label>Currency: <select className="ri" value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></label>
-      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Deposit <StatusBadge status={deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus)} dueDate={ed.depositDue}/></div>
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Deposit <StatusBadge status={depStatus} dueDate={ed.depositDue}/>{depUnpaid&&<button onClick={()=>setMarkPaidTarget(markPaidTarget==="deposit"?null:"deposit")} style={{marginLeft:"auto",fontSize:11,padding:"3px 10px",borderRadius:4,border:"1px solid var(--gn)",background:markPaidTarget==="deposit"?"var(--gn)":"var(--gnb)",color:markPaidTarget==="deposit"?"#fff":"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>Mark Paid</button>}</div>
       <label>Amount: <input className="ri" type="number" step="0.01" value={ed.depositAmt||0} onChange={e=>sf("depositAmt",e.target.value)}/></label>
       <label>Due Date: <input className="ri" type="date" value={ed.depositDue||""} onChange={e=>sf("depositDue",e.target.value)}/></label>
       <label>Paid Date: <input className="ri" type="date" value={ed.depositPaid||""} onChange={e=>sf("depositPaid",e.target.value)}/></label>
-      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Release <StatusBadge status={deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus)} dueDate={ed.releaseDue}/></div>
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Release <StatusBadge status={relStatus} dueDate={ed.releaseDue}/>{relUnpaid&&<button onClick={()=>setMarkPaidTarget(markPaidTarget==="release"?null:"release")} style={{marginLeft:"auto",fontSize:11,padding:"3px 10px",borderRadius:4,border:"1px solid var(--gn)",background:markPaidTarget==="release"?"var(--gn)":"var(--gnb)",color:markPaidTarget==="release"?"#fff":"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>Mark Paid</button>}</div>
       <label>Amount: <input className="ri" type="number" step="0.01" value={ed.releaseAmt||0} onChange={e=>sf("releaseAmt",e.target.value)}/></label>
       <label>Due Date: <input className="ri" type="date" value={ed.releaseDue||""} onChange={e=>sf("releaseDue",e.target.value)}/></label>
       <label>Paid Date: <input className="ri" type="date" value={ed.releasePaid||""} onChange={e=>sf("releasePaid",e.target.value)}/></label>
+
+      {/* Mark as Paid panel */}
+      {markPaidTarget&&<div style={{padding:16,background:"linear-gradient(135deg,#ecfdf5,#d1fae5)",border:"2px solid var(--gn)",borderRadius:"var(--r2)",marginTop:4}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#047857",marginBottom:8}}>Mark {markPaidTarget==="deposit"?"Deposit":markPaidTarget==="release"?"Release":"Both"} as Paid</div>
+        <div style={{fontSize:12,color:"#065f46",marginBottom:10}}>A note is required when manually marking as paid. This will be recorded in the order notes.</div>
+        <textarea className="ri" value={markPaidNote} onChange={e=>setMarkPaidNote(e.target.value)} placeholder="e.g. Paid via TransferMate, confirmed by Sam..." rows={2} style={{width:"100%",resize:"vertical",marginBottom:10,fontSize:13}}/>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>markPaid(markPaidTarget)} disabled={saving||!markPaidNote.trim()} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"none",background:markPaidNote.trim()?"var(--gn)":"var(--bd)",color:markPaidNote.trim()?"#fff":"var(--tx3)",cursor:markPaidNote.trim()?"pointer":"not-allowed",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Confirm Mark Paid</button>
+          {depUnpaid&&relUnpaid&&markPaidTarget!=="both"&&<button onClick={()=>{setMarkPaidTarget("both");}} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"1px solid var(--gn)",background:"var(--gnb)",color:"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Mark Both Paid</button>}
+          <button onClick={()=>{setMarkPaidTarget(null);setMarkPaidNote("");}} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+        </div>
+      </div>}
+
       <label>Notes: <input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)}/></label>
     </div>
     <div style={{marginTop:16,padding:14,background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>
@@ -1142,6 +1204,24 @@ function OrdersTab({orders,payments,onRefresh}){
   const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);const[showPaid,setShowPaid]=useState(false);
   const[editOrder,setEditOrder]=useState(null);const[uploadFor,setUploadFor]=useState(null);
   const deleteOrder=async(order)=>{if(!confirm(`Delete order ${order.ref}? This cannot be undone.`))return;loading.show("Deleting "+order.ref+"...");try{await apiDelete(`/api/orders/${encodeURIComponent(order.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}finally{loading.hide();}};
+  const inlineSave=useCallback(async(orderId,field,value)=>{
+    const patch={};
+    // Map field names to API field names
+    if(field==="ref")patch.ref=value;
+    else if(field==="inv")patch.inv=value;
+    else if(field==="supplier")patch.supplier=value;
+    else if(field==="region")patch.region=value;
+    else if(field==="poDate")patch.poDate=value;
+    else if(field==="depositDue")patch.depositDue=value;
+    else if(field==="depositPaid"){patch.depositPaid=value;patch.depositStatus=value?"paid":"unpaid";}
+    else if(field==="releaseDue")patch.releaseDue=value;
+    else if(field==="releasePaid"){patch.releasePaid=value;patch.releaseStatus=value?"paid":"unpaid";}
+    else if(field==="notes")patch.notes=value;
+    else if(field==="currency")patch.currency=value;
+    else patch[field]=value;
+    await apiPatch(`/api/orders/${encodeURIComponent(orderId)}`,patch);
+    await onRefresh();
+  },[onRefresh]);
   const allItems=ordersToLineItems(orders);
   const baseFiltered=allItems.filter(item=>{if(fAge!=="all"){const months=fAge==="1M"?1:fAge==="3M"?3:fAge==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const dateToCheck=item.poDate||item.lineDue;if(dateToCheck){const itemDate=new Date(dateToCheck);if(itemDate<cutoff)return false;}}if(fR!=="all"&&item.region!==fR)return false;if(fS!=="all"&&item.supplier!==fS)return false;if(search)return(item.ref+item.inv+item.notes+item.supplier).toLowerCase().includes(search.toLowerCase());return true;});
   const sortItems=items=>[...items].sort((a,b)=>{const d=sort.dir==="asc"?1:-1;if(sort.key==="amount")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="usdEquiv")return(toUSD(a.lineAmount,a.currency)-toUSD(b.lineAmount,b.currency))*d;if(sort.key==="paidAmt")return(toUSD(a.linePaidAmt||0,a.currency)-toUSD(b.linePaidAmt||0,b.currency))*d;if(sort.key==="outstanding")return(toUSD(a.lineOutstanding||0,a.currency)-toUSD(b.lineOutstanding||0,b.currency))*d;if(sort.key==="due")return((a.lineDue||"")>(b.lineDue||"")?1:-1)*d;if(sort.key==="paidDate")return((a.linePaid||"")>(b.linePaid||"")?1:-1)*d;if(sort.key==="supplier")return((a.supplier||"")>(b.supplier||"")?1:-1)*d;if(sort.key==="inv")return((a.inv||"")>(b.inv||"")?1:-1)*d;if(sort.key==="region")return((a.region||"")>(b.region||"")?1:-1)*d;if(sort.key==="type")return((a.lineType||"")>(b.lineType||"")?1:-1)*d;if(sort.key==="currency")return((a.currency||"")>(b.currency||"")?1:-1)*d;if(sort.key==="poDate")return((a.poDate||"")>(b.poDate||"")?1:-1)*d;if(sort.key==="status"){const sv=s=>s==="paid"?0:s==="due"?1:s==="overdue"?2:3;return(sv(a.lineStatus)-sv(b.lineStatus))*d;}return((a[sort.key]||"")>(b[sort.key]||"")?1:-1)*d;});
@@ -1154,7 +1234,7 @@ function OrdersTab({orders,payments,onRefresh}){
   const to=baseFiltered.reduce((s,i)=>s+toUSD(i.lineOutstanding||0,i.currency),0);
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
-  const renderRows=items=><tbody>{items.map(item=>{const isPaid=item.lineStatus==="paid";const isPartial=item.lineStatus==="partial";const isOverdue=!isPaid&&!isPartial&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isPartial?"#eff6ff":isOverdue?"#fef2f2":"inherit"}}><td><RegionBadge region={item.region}/></td><td className="cb">{item.ref}</td><td className="mono">{item.inv}</td><td><span className="badge badge-blue">{item.lineType}</span></td><td>{item.currency}</td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="mono" style={{color:item.linePaidAmt>0?"var(--gn)":"var(--tx3)"}}>{item.linePaidAmt>0?usd(toUSD(item.linePaidAmt,item.currency)):"—"}</td><td className="mono" style={{fontWeight:700,color:item.lineOutstanding>0?"var(--am)":"var(--gn)"}}>{usd(toUSD(item.lineOutstanding,item.currency))}</td><td className="cm">{fmtDate(item.lineDue)}</td><td className="cm">{fmtDate(item.linePaid)}</td><td className="cm">{fmtDate(item.poDate)}</td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td>{item.supplier}{item.notes?<span className="cm" style={{display:"block",fontSize:10}}>{item.notes}</span>:""}</td><td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{fontSize:10,whiteSpace:"nowrap",lineHeight:"16px"}}>{(()=>{const d=item.docs||{};return <span style={{display:"inline-flex",gap:4}}><span title="Purchase Order" style={{color:d.po?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.po?"☑":"☐"} PO</span><span title="Commercial Invoice" style={{color:d.ci?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.ci?"☑":"☐"} CI</span><span title="Remittance" style={{color:d.rem?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.rem?"☑":"☐"} Rem</span></span>})()}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}{!items.length&&<tr><td colSpan={17} className="ec">No line items match</td></tr>}</tbody>;
+  const renderRows=items=><tbody>{items.map(item=>{const isPaid=item.lineStatus==="paid";const isPartial=item.lineStatus==="partial";const isOverdue=!isPaid&&!isPartial&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} style={{background:isPaid?"#f0fdf4":isPartial?"#eff6ff":isOverdue?"#fef2f2":"inherit"}}><td><InlineEditCell value={item.region} orderId={item.id} field="region" type="select" options={ENTITIES} onSave={inlineSave} displayValue={<RegionBadge region={item.region}/>}/></td><td className="cb"><InlineEditCell value={item.ref} orderId={item.id} field="ref" onSave={inlineSave}/></td><td><InlineEditCell value={item.inv} orderId={item.id} field="inv" onSave={inlineSave} mono/></td><td><span className="badge badge-blue">{item.lineType}</span></td><td><InlineEditCell value={item.currency} orderId={item.id} field="currency" type="select" options={CURRENCIES} onSave={inlineSave}/></td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="mono" style={{color:item.linePaidAmt>0?"var(--gn)":"var(--tx3)"}}>{item.linePaidAmt>0?usd(toUSD(item.linePaidAmt,item.currency)):"—"}</td><td className="mono" style={{fontWeight:700,color:item.lineOutstanding>0?"var(--am)":"var(--gn)"}}>{usd(toUSD(item.lineOutstanding,item.currency))}</td><td><InlineEditCell value={item.lineDue} orderId={item.id} field={item.lineType==="Deposit"?"depositDue":"releaseDue"} type="date" onSave={inlineSave} displayValue={fmtDate(item.lineDue)} style={{fontSize:12,color:"var(--tx2)"}}/></td><td><InlineEditCell value={item.linePaid} orderId={item.id} field={item.lineType==="Deposit"?"depositPaid":"releasePaid"} type="date" onSave={inlineSave} displayValue={fmtDate(item.linePaid)} style={{fontSize:12,color:"var(--tx2)"}}/></td><td><InlineEditCell value={item.poDate} orderId={item.id} field="poDate" type="date" onSave={inlineSave} displayValue={fmtDate(item.poDate)} style={{fontSize:12,color:"var(--tx2)"}}/></td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td><InlineEditCell value={item.supplier} orderId={item.id} field="supplier" type="select" options={SUPPLIERS} onSave={inlineSave}/>{item.notes?<span className="cm" style={{display:"block",fontSize:10,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}} title={item.notes}>{item.notes}</span>:""}</td><td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{fontSize:10,whiteSpace:"nowrap",lineHeight:"16px"}}>{(()=>{const d=item.docs||{};return <span style={{display:"inline-flex",gap:4}}><span title="Purchase Order" style={{color:d.po?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.po?"☑":"☐"} PO</span><span title="Commercial Invoice" style={{color:d.ci?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.ci?"☑":"☐"} CI</span><span title="Remittance" style={{color:d.rem?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.rem?"☑":"☐"} Rem</span></span>})()}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit all fields">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}{!items.length&&<tr><td colSpan={17} className="ec">No line items match</td></tr>}</tbody>;
 
   return <>
     <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{unpaidItems.length} unpaid · {paidItems.length} paid (from {baseFiltered.length} filtered line items)</p></div><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload POs"}</button></div>

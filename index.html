@@ -51,6 +51,9 @@ th.usd-col{background:#e8edfa;z-index:1}td.usd-col{background:rgba(37,99,235,.05
 .rr-attn{background:linear-gradient(90deg,#fff7ed 0%,transparent 60%);border-left:3px solid var(--am);margin:0 -22px;padding:0 22px 0 19px}
 .rr-attn-dest{background:linear-gradient(90deg,#fef2f2 0%,transparent 60%);border-left:3px solid var(--rd)}
 .sv{display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;border-radius:6px;padding:2px 4px;transition:background .15s}.sv:hover{background:var(--s2)}.sv:hover .sv-pen{opacity:.7}.sv-val{font-size:14px;font-weight:600;color:var(--tx)}.sv-val-num{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:var(--tx)}.sv-pen{font-size:12px;opacity:.3;transition:opacity .15s;flex-shrink:0}.sv-empty{font-size:13px;color:var(--tx3);font-style:italic}
+.iec{display:inline-flex;align-items:center;gap:4px;cursor:pointer;border-radius:4px;padding:1px 4px;transition:background .15s}.iec:hover{background:var(--s2)}.iec .iec-pen{opacity:0;font-size:10px;transition:opacity .15s}.iec:hover .iec-pen{opacity:.5}
+.em-field{display:flex;align-items:center;gap:8px;min-height:38px;cursor:pointer;border-radius:8px;padding:6px 10px;transition:background .15s;border:1px solid transparent}.em-field:hover{background:var(--s2);border-color:var(--bd)}.em-field .em-pen{opacity:0;font-size:11px;transition:opacity .15s;margin-left:auto;flex-shrink:0}.em-field:hover .em-pen{opacity:.5}.em-field-label{font-size:11px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.04em;min-width:80px;flex-shrink:0}.em-field-value{font-size:14px;font-weight:600;color:var(--tx);flex:1}.em-field-empty{font-size:13px;color:var(--tx3);font-style:italic;flex:1}
+.paid-toggle{display:inline-flex;align-items:center;gap:0;border-radius:6px;overflow:hidden;border:1px solid var(--bd)}.paid-toggle button{font-size:11px;font-weight:700;padding:5px 14px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s}.paid-toggle .pt-unpaid{background:var(--wh);color:var(--tx3)}.paid-toggle .pt-paid{background:var(--wh);color:var(--tx3)}.paid-toggle .pt-unpaid.pt-active{background:var(--rd);color:#fff}.paid-toggle .pt-paid.pt-active{background:var(--gn);color:#fff}
 .attn-label{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 6px;border-radius:3px;margin-left:6px}
 .ri{width:100%;background:var(--s2);border:1px solid var(--bd);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--tx);font-family:'DM Sans',sans-serif;outline:none;transition:border-color .15s}.ri:focus{border-color:var(--ac);box-shadow:0 0 0 2px rgba(37,99,235,.1)}.ri-g{display:flex;gap:8px}.ri-n{flex:1;font-family:'JetBrains Mono',monospace}.ri-sm{width:90px;flex-shrink:0}
 .ci{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;font-size:15px;font-weight:800;letter-spacing:0}.ci-lg{width:36px;height:36px;font-size:18px;border-radius:8px}.ci-h{background:#059669;color:#fff;box-shadow:0 1px 3px rgba(5,150,105,.3)}.ci-m{background:#d97706;color:#fff;box-shadow:0 1px 3px rgba(217,119,6,.3)}.ci-l{background:#dc2626;color:#fff;box-shadow:0 1px 3px rgba(220,38,38,.3)}
@@ -381,9 +384,9 @@ function InlineEditCell({value,orderId,field,type,options,onSave,displayValue,mo
     return <input ref={ref} type={type||"text"} value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={handleKey} style={inputStyle}/>;
   }
   const show=displayValue||value;
-  return <span className={className||""} style={{...style,display:"inline-flex",alignItems:"center",gap:4,cursor:"pointer",borderRadius:4,padding:"1px 4px",transition:"background .15s"}} onClick={()=>setEditing(true)} onMouseEnter={e=>e.currentTarget.style.background="var(--s2)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+  return <span className={"iec "+(className||"")} style={style} onClick={()=>setEditing(true)}>
     <span style={mono?{fontFamily:"'JetBrains Mono',monospace",fontSize:12}:{}}>{show||<span style={{color:"var(--tx3)",fontStyle:"italic",fontSize:11}}>—</span>}</span>
-    {saving?<span className="spinner" style={{width:10,height:10,borderWidth:1.5}}/>:<span style={{fontSize:10,opacity:.25,transition:"opacity .15s"}}>✏️</span>}
+    {saving?<span className="spinner" style={{width:10,height:10,borderWidth:1.5}}/>:<span className="iec-pen">✏️</span>}
   </span>;
 }
 function ConfIcon({level}){if(level==="high")return <div style={{width:28,height:28}}></div>;if(level==="medium")return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,opacity:.6}}>⚠</div>;return <div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"var(--rd)",fontWeight:700}}>!</div>;}
@@ -394,16 +397,27 @@ function DropZone({onFiles,compact,label}){const[drag,setDrag]=useState(false);c
 // HelpModal
 function HelpModal({onClose}){return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:700,width:"90%",maxHeight:"90vh",overflow:"auto",padding:32}} onClick={e=>e.stopPropagation()}><h2 style={{marginBottom:20}}>📚 Bureau Ops — System Guide</h2><div style={{fontSize:14,lineHeight:1.6}}><h3 style={{marginTop:0,marginBottom:10}}>🏗️ Architecture</h3><div style={{background:"var(--s2)",padding:16,borderRadius:8,marginBottom:16,fontFamily:"'JetBrains Mono',monospace",fontSize:12,lineHeight:1.8}}>Dashboard (Cloudflare Pages)<br/>↓ API calls<br/>Worker (bureau.nik-d88.workers.dev)<br/>↓ reads/writes<br/>Google Sheets ("Bureau Ops Data")<br/>+<br/>Google Drive ("Supplier purchase orders")</div><h3 style={{marginTop:20,marginBottom:10}}>🔗 Key Links</h3><ul style={{marginLeft:20,marginBottom:16}}><li><strong>Dashboard:</strong> <a href="https://bureau.pages.dev" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>https://bureau.pages.dev</a> (auto-deploys from GitHub)</li><li><strong>Worker API:</strong> <a href="https://bureau.nik-d88.workers.dev/api/health" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>https://bureau.nik-d88.workers.dev</a> (check /api/health)</li><li><strong>GitHub Repo:</strong> <a href="https://github.com/nikb333/Bureau" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>https://github.com/nikb333/Bureau</a> (private)</li><li><strong>Google Sheet:</strong> Search for "Bureau Ops Data" in Google Drive (2 tabs: Orders, Payments)</li><li><strong>Document Storage:</strong> Search for "Supplier purchase orders" folder in Google Drive</li></ul><h3 style={{marginTop:20,marginBottom:10}}>📊 How It Works</h3><p style={{marginBottom:10}}>This dashboard manages purchase orders and payments across 4 Bureau entities (AU, UK, US, CA). The entire system is intentionally simple:</p><ol style={{marginLeft:20,marginBottom:16}}><li><strong>Google Sheets = Database</strong> — All data is stored in a flat Google Sheet. Anyone can open it and edit data directly if the dashboard breaks.</li><li><strong>Cloudflare Worker = API</strong> — Thin API layer that reads/writes the sheet and manages file uploads to Google Drive.</li><li><strong>Single HTML File</strong> — The entire dashboard is one self-contained HTML file with no build step. Just React + Babel from CDN.</li></ol><h3 style={{marginTop:20,marginBottom:10}}>🗄️ Google Sheets Database</h3><p style={{marginBottom:10}}><strong>Sheet Name:</strong> "Bureau Ops Data"<br/><strong>Tabs:</strong> Orders | Payments</p><p style={{marginBottom:10}}><strong>Orders tab columns:</strong><br/>ID, Region, Ref, Invoice, Supplier, Currency, Total Value, Deposit Amt, Deposit Status, Deposit Due, Deposit Paid, Release Amt, Release Status, Release Due, Release Paid, Notes, Drive Folder ID, Created, Updated, PO Date</p><p style={{marginBottom:20}}><strong>Payments tab columns:</strong><br/>ID, Bank Account, Source Entity, Amount, Currency, Payment Date, Payment Type, Order IDs, Allocations (JSON), Notes, Doc Name, Created</p><h3 style={{marginTop:20,marginBottom:10}}>📁 Google Drive Storage</h3><p style={{marginBottom:10}}><strong>Folder:</strong> "Supplier purchase orders"<br/><strong>Structure:</strong> Supplier folders → PO folders → Documents</p><p style={{marginBottom:20}}>Each PO gets its own folder under the supplier. The folder ID is stored in the Orders sheet.</p><h3 style={{marginTop:20,marginBottom:10}}>🔧 Troubleshooting</h3><p style={{marginBottom:8}}><strong>Dashboard not loading?</strong></p><ul style={{marginLeft:20,marginBottom:12}}><li>Check Worker status: visit <a href="https://bureau.nik-d88.workers.dev/api/health" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>/api/health</a></li><li>Clear browser cache (Ctrl+Shift+R)</li><li>Open Google Sheets directly: search "Bureau Ops Data"</li></ul><p style={{marginBottom:8}}><strong>Data looks wrong?</strong></p><ul style={{marginLeft:20,marginBottom:12}}><li>Open the Google Sheet and verify data manually</li><li>Check the "Updated" column to see when data changed</li><li>All dates are YYYY-MM-DD format</li></ul><p style={{marginBottom:8}}><strong>Documents not uploading?</strong></p><ul style={{marginLeft:20,marginBottom:12}}><li>Check Google Drive "Supplier purchase orders" folder</li><li>Verify service account has Editor access</li><li>Check browser console for errors (F12)</li></ul><h3 style={{marginTop:20,marginBottom:10}}>🔑 Manual Access</h3><p style={{marginBottom:10}}>If you need to make changes directly:</p><ul style={{marginLeft:20,marginBottom:10}}><li><strong>View/edit data:</strong> Open "Bureau Ops Data" sheet in Google Drive</li><li><strong>View/upload docs:</strong> Open "Supplier purchase orders" folder in Google Drive</li><li><strong>API access:</strong> Use the Worker endpoints (GET /api/orders, GET /api/payments, etc.)</li><li><strong>Code changes:</strong> Push to GitHub main branch → auto-deploys in ~30 seconds</li></ul></div><div style={{marginTop:24,textAlign:"right"}}><button className="btn btn-primary" onClick={onClose}>Got it</button></div></div></div>;}
 
-// EditOrderModal
-function EditOrderModal({order,onSave,onClose}){
+// EditOrderModal — click-to-edit fields with auto-save, paid/unpaid toggle
+function EditOrderModal({order,onSave,onRefresh,onClose}){
   const loading=useLoading();
   const[ed,setEd]=useState({...order});const[saving,setSaving]=useState(false);
   const[uploadFile,setUploadFile]=useState(null);const[uploading,setUploading]=useState(false);const[uploaded,setUploaded]=useState(false);
   const[markPaidNote,setMarkPaidNote]=useState("");const[markPaidTarget,setMarkPaidTarget]=useState(null);
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
-  const deriveStatus=(paidDate,dueDate,currentStatus)=>paidDate?"paid":dueDate?"due":currentStatus==="paid"?"paid":"unpaid";
-  const save=async()=>{setSaving(true);loading.show("Saving changes...");try{const depSt=deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus);const relSt=deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus);await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{region:ed.region,ref:ed.ref,inv:ed.inv,supplier:ed.supplier,currency:ed.currency,depositAmt:+(ed.depositAmt)||0,depositStatus:depSt,depositDue:ed.depositDue,depositPaid:ed.depositPaid,releaseAmt:+(ed.releaseAmt)||0,releaseStatus:relSt,releaseDue:ed.releaseDue,releasePaid:ed.releasePaid,poDate:ed.poDate,notes:ed.notes});await onSave();}catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}};
+  // Auto-save a single field
+  const saveField=async(field,value)=>{
+    setSaving(true);
+    try{
+      const patch={[field]:value};
+      if(field==="depositPaid")patch.depositStatus=value?"paid":(ed.depositDue?"due":"unpaid");
+      if(field==="releasePaid")patch.releaseStatus=value?"paid":(ed.releaseDue?"due":"unpaid");
+      await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,patch);
+      sf(field,value);
+      if(onRefresh)try{await onRefresh();}catch(e){}
+    }catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}
+  };
+  // Mark paid with required note
   const markPaid=async(target)=>{
     if(!markPaidNote.trim()){alert("Please add a note explaining why this is being manually marked as paid.");return;}
     setSaving(true);loading.show(`Marking ${target} as paid...`);
@@ -423,45 +437,126 @@ function EditOrderModal({order,onSave,onClose}){
     }catch(e){alert("Mark paid failed: "+e.message);}finally{setSaving(false);loading.hide();}
   };
   const doUpload=async f=>{setUploadFile(f);setUploading(true);loading.show("Uploading document...");try{await apiUploadFile(f,order.ref,{docType:"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""});setUploaded(true);}catch(e){alert("Upload failed: "+e.message);}finally{setUploading(false);loading.hide();}};
-  const depStatus=deriveStatus(ed.depositPaid,ed.depositDue,ed.depositStatus);
-  const relStatus=deriveStatus(ed.releasePaid,ed.releaseDue,ed.releaseStatus);
-  const depUnpaid=depStatus!=="paid"&&+(ed.depositAmt)>0;
-  const relUnpaid=relStatus!=="paid"&&+(ed.releaseAmt)>0;
-  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-      <h2>Edit Order: {order.ref}</h2>
-      {order.driveFolderId&&<a href={GDRIVE_BASE+order.driveFolderId} target="_blank" rel="noopener" style={{fontSize:12,color:"var(--ac)",textDecoration:"none",fontWeight:600}}>📁 Open Drive Folder</a>}
-    </div>
-    <div style={{display:"grid",gap:12}}>
-      <label>Region: <select className="ri" value={ed.region||""} onChange={e=>sf("region",e.target.value)}><option value="">Select...</option>{ENTITIES.map(e=><option key={e}>{e}</option>)}</select></label>
-      <label>PO Ref: <input className="ri" value={ed.ref||""} onChange={e=>sf("ref",e.target.value)}/></label>
-      <label>Invoice: <input className="ri" value={ed.inv||""} onChange={e=>sf("inv",e.target.value)}/></label>
-      <label>Supplier: <select className="ri" value={ed.supplier||""} onChange={e=>sf("supplier",e.target.value)}><option value="">Select...</option>{SUPPLIERS.map(s=><option key={s}>{s}</option>)}</select></label>
-      <label>PO Date: <input className="ri" type="date" value={ed.poDate||""} onChange={e=>sf("poDate",e.target.value)}/></label>
-      <label>Currency: <select className="ri" value={ed.currency||"USD"} onChange={e=>sf("currency",e.target.value)}>{CURRENCIES.map(c=><option key={c}>{c}</option>)}</select></label>
-      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Deposit <StatusBadge status={depStatus} dueDate={ed.depositDue}/>{depUnpaid&&<button onClick={()=>setMarkPaidTarget(markPaidTarget==="deposit"?null:"deposit")} style={{marginLeft:"auto",fontSize:11,padding:"3px 10px",borderRadius:4,border:"1px solid var(--gn)",background:markPaidTarget==="deposit"?"var(--gn)":"var(--gnb)",color:markPaidTarget==="deposit"?"#fff":"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>Mark Paid</button>}</div>
-      <label>Amount: <input className="ri" type="number" step="0.01" value={ed.depositAmt||0} onChange={e=>sf("depositAmt",e.target.value)}/></label>
-      <label>Due Date: <input className="ri" type="date" value={ed.depositDue||""} onChange={e=>sf("depositDue",e.target.value)}/></label>
-      <label>Paid Date: <input className="ri" type="date" value={ed.depositPaid||""} onChange={e=>sf("depositPaid",e.target.value)}/></label>
-      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginTop:4}}>Release <StatusBadge status={relStatus} dueDate={ed.releaseDue}/>{relUnpaid&&<button onClick={()=>setMarkPaidTarget(markPaidTarget==="release"?null:"release")} style={{marginLeft:"auto",fontSize:11,padding:"3px 10px",borderRadius:4,border:"1px solid var(--gn)",background:markPaidTarget==="release"?"var(--gn)":"var(--gnb)",color:markPaidTarget==="release"?"#fff":"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}}>Mark Paid</button>}</div>
-      <label>Amount: <input className="ri" type="number" step="0.01" value={ed.releaseAmt||0} onChange={e=>sf("releaseAmt",e.target.value)}/></label>
-      <label>Due Date: <input className="ri" type="date" value={ed.releaseDue||""} onChange={e=>sf("releaseDue",e.target.value)}/></label>
-      <label>Paid Date: <input className="ri" type="date" value={ed.releasePaid||""} onChange={e=>sf("releasePaid",e.target.value)}/></label>
-
-      {/* Mark as Paid panel */}
-      {markPaidTarget&&<div style={{padding:16,background:"linear-gradient(135deg,#ecfdf5,#d1fae5)",border:"2px solid var(--gn)",borderRadius:"var(--r2)",marginTop:4}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#047857",marginBottom:8}}>Mark {markPaidTarget==="deposit"?"Deposit":markPaidTarget==="release"?"Release":"Both"} as Paid</div>
-        <div style={{fontSize:12,color:"#065f46",marginBottom:10}}>A note is required when manually marking as paid. This will be recorded in the order notes.</div>
-        <textarea className="ri" value={markPaidNote} onChange={e=>setMarkPaidNote(e.target.value)} placeholder="e.g. Paid via TransferMate, confirmed by Sam..." rows={2} style={{width:"100%",resize:"vertical",marginBottom:10,fontSize:13}}/>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>markPaid(markPaidTarget)} disabled={saving||!markPaidNote.trim()} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"none",background:markPaidNote.trim()?"var(--gn)":"var(--bd)",color:markPaidNote.trim()?"#fff":"var(--tx3)",cursor:markPaidNote.trim()?"pointer":"not-allowed",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Confirm Mark Paid</button>
-          {depUnpaid&&relUnpaid&&markPaidTarget!=="both"&&<button onClick={()=>{setMarkPaidTarget("both");}} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"1px solid var(--gn)",background:"var(--gnb)",color:"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Mark Both Paid</button>}
-          <button onClick={()=>{setMarkPaidTarget(null);setMarkPaidNote("");}} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+  const depIsPaid=ed.depositStatus==="paid"||!!ed.depositPaid;
+  const relIsPaid=ed.releaseStatus==="paid"||!!ed.releasePaid;
+  const depUnpaid=!depIsPaid&&+(ed.depositAmt)>0;
+  const relUnpaid=!relIsPaid&&+(ed.releaseAmt)>0;
+  // Editable field component for the modal
+  const EF=({label,field,value,type,options,mono,displayValue})=>{
+    const[editing,setEditing]=useState(false);
+    const[val,setVal]=useState(value||"");
+    const[fieldSaving,setFieldSaving]=useState(false);
+    const iRef=useRef();
+    useEffect(()=>{setVal(value||"");},[value]);
+    useEffect(()=>{if(editing&&iRef.current){iRef.current.focus();if(type!=="date"&&type!=="select"&&iRef.current.select)iRef.current.select();}},[editing]);
+    const commit=async()=>{
+      if(val===(value||"")){setEditing(false);return;}
+      setFieldSaving(true);
+      try{await saveField(field,val);sf(field,val);setEditing(false);}catch(e){alert("Save failed: "+e.message);}finally{setFieldSaving(false);}
+    };
+    const handleKey=e=>{if(e.key==="Enter")commit();if(e.key==="Escape"){setVal(value||"");setEditing(false);}};
+    if(editing){
+      const inputStyle={fontSize:14,padding:"6px 10px",border:"1px solid var(--ac)",borderRadius:6,outline:"none",fontFamily:mono?"'JetBrains Mono',monospace":"'DM Sans',sans-serif",width:"100%",boxSizing:"border-box"};
+      return <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+        <span className="em-field-label">{label}</span>
+        <div style={{flex:1}}>
+          {type==="select"?<select ref={iRef} value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={handleKey} style={inputStyle}>{options?.includes("")||<option value="">—</option>}{(options||[]).map(o=><option key={o} value={o}>{o}</option>)}</select>
+          :<input ref={iRef} type={type||"text"} value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={handleKey} style={inputStyle}/>}
         </div>
-      </div>}
-
-      <label>Notes: <input className="ri" value={ed.notes||""} onChange={e=>sf("notes",e.target.value)}/></label>
+        {fieldSaving&&<span className="spinner" style={{width:14,height:14,borderWidth:2}}/>}
+      </div>;
+    }
+    const show=displayValue||value;
+    return <div className="em-field" onClick={()=>setEditing(true)}>
+      <span className="em-field-label">{label}</span>
+      {show?<span className={mono?"em-field-value":"em-field-value"} style={mono?{fontFamily:"'JetBrains Mono',monospace"}:{}}>{show}</span>:<span className="em-field-empty">Not set — click to edit</span>}
+      {fieldSaving?<span className="spinner" style={{width:12,height:12,borderWidth:2}}/>:<span className="em-pen">✏️</span>}
+    </div>;
+  };
+  // Paid/unpaid toggle that auto-saves
+  const PaidToggle=({isPaid,target})=>{
+    const togglePaid=()=>{
+      if(isPaid){
+        // Switching to unpaid
+        if(target==="deposit"){saveField("depositStatus","unpaid");saveField("depositPaid","");sf("depositStatus","unpaid");sf("depositPaid","");}
+        else{saveField("releaseStatus","unpaid");saveField("releasePaid","");sf("releaseStatus","unpaid");sf("releasePaid","");}
+      }else{
+        // Switching to paid — require a note
+        setMarkPaidTarget(target);
+      }
+    };
+    return <div className="paid-toggle">
+      <button className={`pt-unpaid ${!isPaid?"pt-active":""}`} onClick={()=>{if(isPaid)togglePaid();}}>Unpaid</button>
+      <button className={`pt-paid ${isPaid?"pt-active":""}`} onClick={()=>{if(!isPaid)togglePaid();}}>Paid</button>
+    </div>;
+  };
+  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <h2 style={{margin:0}}>Edit Order: {ed.ref||order.ref}</h2>
+      <div style={{display:"flex",gap:10,alignItems:"center"}}>
+        {order.driveFolderId&&<a href={GDRIVE_BASE+order.driveFolderId} target="_blank" rel="noopener" style={{fontSize:12,color:"var(--ac)",textDecoration:"none",fontWeight:600}}>📁 Drive</a>}
+        <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--tx3)",padding:"4px 8px"}}>✕</button>
+      </div>
     </div>
+    <div style={{fontSize:11,color:"var(--tx3)",marginBottom:16}}>Click any field to edit — saves automatically</div>
+
+    <div style={{display:"grid",gap:2}}>
+      <EF label="Region" field="region" value={ed.region} type="select" options={ENTITIES}/>
+      <EF label="PO Ref" field="ref" value={ed.ref}/>
+      <EF label="Invoice" field="inv" value={ed.inv} mono/>
+      <EF label="Supplier" field="supplier" value={ed.supplier} type="select" options={SUPPLIERS}/>
+      <EF label="PO Date" field="poDate" value={ed.poDate} type="date" displayValue={fmtDate(ed.poDate)}/>
+      <EF label="Currency" field="currency" value={ed.currency||"USD"} type="select" options={CURRENCIES}/>
+    </div>
+
+    {/* Deposit section */}
+    <div style={{marginTop:16,padding:14,background:depIsPaid?"#f0fdf4":"var(--s2)",borderRadius:"var(--r)",border:`1px solid ${depIsPaid?"#bbf7d0":"var(--bd)"}`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>Deposit</span>
+          <StatusBadge status={depIsPaid?"paid":(ed.depositDue?"due":"unpaid")} dueDate={ed.depositDue}/>
+        </div>
+        {+(ed.depositAmt)>0&&<PaidToggle isPaid={depIsPaid} target="deposit"/>}
+      </div>
+      <div style={{display:"grid",gap:2}}>
+        <EF label="Amount" field="depositAmt" value={ed.depositAmt} type="number" mono displayValue={ed.depositAmt?(+(ed.depositAmt)).toLocaleString():null}/>
+        <EF label="Due Date" field="depositDue" value={ed.depositDue} type="date" displayValue={fmtDate(ed.depositDue)}/>
+        {depIsPaid&&<EF label="Paid Date" field="depositPaid" value={ed.depositPaid} type="date" displayValue={fmtDate(ed.depositPaid)}/>}
+      </div>
+    </div>
+
+    {/* Release section */}
+    <div style={{marginTop:10,padding:14,background:relIsPaid?"#f0fdf4":"var(--s2)",borderRadius:"var(--r)",border:`1px solid ${relIsPaid?"#bbf7d0":"var(--bd)"}`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>Release</span>
+          <StatusBadge status={relIsPaid?"paid":(ed.releaseDue?"due":"unpaid")} dueDate={ed.releaseDue}/>
+        </div>
+        {+(ed.releaseAmt)>0&&<PaidToggle isPaid={relIsPaid} target="release"/>}
+      </div>
+      <div style={{display:"grid",gap:2}}>
+        <EF label="Amount" field="releaseAmt" value={ed.releaseAmt} type="number" mono displayValue={ed.releaseAmt?(+(ed.releaseAmt)).toLocaleString():null}/>
+        <EF label="Due Date" field="releaseDue" value={ed.releaseDue} type="date" displayValue={fmtDate(ed.releaseDue)}/>
+        {relIsPaid&&<EF label="Paid Date" field="releasePaid" value={ed.releasePaid} type="date" displayValue={fmtDate(ed.releasePaid)}/>}
+      </div>
+    </div>
+
+    {/* Mark as Paid note panel */}
+    {markPaidTarget&&<div style={{marginTop:10,padding:16,background:"linear-gradient(135deg,#ecfdf5,#d1fae5)",border:"2px solid var(--gn)",borderRadius:"var(--r2)"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#047857",marginBottom:8}}>Mark {markPaidTarget==="deposit"?"Deposit":markPaidTarget==="release"?"Release":"Both"} as Paid</div>
+      <div style={{fontSize:12,color:"#065f46",marginBottom:10}}>A note is required when manually marking as paid.</div>
+      <textarea className="ri" value={markPaidNote} onChange={e=>setMarkPaidNote(e.target.value)} placeholder="e.g. Paid via TransferMate, confirmed by Sam..." rows={2} style={{width:"100%",resize:"vertical",marginBottom:10,fontSize:13}}/>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <button onClick={()=>markPaid(markPaidTarget)} disabled={saving||!markPaidNote.trim()} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"none",background:markPaidNote.trim()?"var(--gn)":"var(--bd)",color:markPaidNote.trim()?"#fff":"var(--tx3)",cursor:markPaidNote.trim()?"pointer":"not-allowed",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Confirm Mark Paid</button>
+        {depUnpaid&&relUnpaid&&markPaidTarget!=="both"&&<button onClick={()=>setMarkPaidTarget("both")} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"1px solid var(--gn)",background:"var(--gnb)",color:"var(--gn)",cursor:"pointer",fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>Mark Both Paid</button>}
+        <button onClick={()=>{setMarkPaidTarget(null);setMarkPaidNote("");}} style={{fontSize:12,padding:"7px 16px",borderRadius:6,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+      </div>
+    </div>}
+
+    {/* Notes */}
+    <div style={{marginTop:10}}><EF label="Notes" field="notes" value={ed.notes}/></div>
+
+    {/* File upload */}
     <div style={{marginTop:16,padding:14,background:"var(--s2)",borderRadius:"var(--r)",border:"1px dashed var(--bd2)"}}>
       <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:8}}>Upload Document to {order.ref}</div>
       {uploaded?<div style={{display:"flex",alignItems:"center",gap:8,color:"var(--gn)",fontWeight:600,fontSize:13}}>✓ {uploadFile?.name} uploaded</div>
@@ -472,7 +567,7 @@ function EditOrderModal({order,onSave,onClose}){
         <input ref={upRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0];if(f)doUpload(f);e.target.value="";}}/>
       </div>}
     </div>
-    <div style={{display:"flex",gap:12,marginTop:20,justifyContent:"flex-end"}}><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button></div>
+    <div style={{display:"flex",gap:12,marginTop:16,justifyContent:"flex-end"}}><button className="btn btn-ghost" onClick={onClose}>Close</button></div>
   </div></div>;
 }
 
@@ -1260,7 +1355,7 @@ function OrdersTab({orders,payments,onRefresh}){
       {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("paidAmt")}>Paid{si("paidAmt")}</th><th className="srt" onClick={()=>ts("outstanding")}>Outstanding{si("outstanding")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Docs</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div></div>}
     </div>
 
-    {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{await onRefresh();setEditOrder(null);}} onClose={()=>setEditOrder(null)}/>}
+    {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{await onRefresh();setEditOrder(null);}} onRefresh={onRefresh} onClose={()=>setEditOrder(null)}/>}
     {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}
   </>;
 }

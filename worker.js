@@ -1374,22 +1374,42 @@ Hints for destination_region: GB prefix=UK, US=US, CA=CA, AU/E=AU.`;
           const curRelPaid = +(o.releasePaidAmt) || 0;
 
           // Detect drift: if stored values don't match actual payment sums
-          if (Math.abs(reconDepPaid - curDepPaid) > 0.01 || Math.abs(reconRelPaid - curRelPaid) > 0.01) {
-            o.depositPaidAmt = reconDepPaid;
-            o.releasePaidAmt = reconRelPaid;
-            // Recalculate statuses
-            const depInv = o.depositAmt || 0;
-            if (depInv > 0 && reconDepPaid >= depInv - 0.01) o.depositStatus = "paid";
-            else if (reconDepPaid > 0.01) o.depositStatus = "partial";
-            else if (o.depositDue) o.depositStatus = "due";
-            else o.depositStatus = "unpaid";
-            const relInv = o.releaseAmt || 0;
-            if (relInv > 0 && reconRelPaid >= relInv - 0.01) o.releaseStatus = "paid";
-            else if (reconRelPaid > 0.01) o.releaseStatus = "partial";
-            else if (o.releaseDue) o.releaseStatus = "due";
-            else o.releaseStatus = "unpaid";
+          // BUT respect manually-marked-paid orders: if status is "paid" and no
+          // payment records exist for that stage, keep it paid (manual override)
+          const hasDepPayments = reconDepPaid > 0.01;
+          const hasRelPayments = reconRelPaid > 0.01;
+          const depManualPaid = o.depositStatus === "paid" && !hasDepPayments;
+          const relManualPaid = o.releaseStatus === "paid" && !hasRelPayments;
+
+          // Only reconcile stages that have actual payment records
+          const depDrift = hasDepPayments && Math.abs(reconDepPaid - curDepPaid) > 0.01;
+          const relDrift = hasRelPayments && Math.abs(reconRelPaid - curRelPaid) > 0.01;
+
+          if (depDrift || relDrift) {
+            if (depDrift) {
+              o.depositPaidAmt = reconDepPaid;
+              const depInv = o.depositAmt || 0;
+              if (depInv > 0 && reconDepPaid >= depInv - 0.01) o.depositStatus = "paid";
+              else if (reconDepPaid > 0.01) o.depositStatus = "partial";
+              else if (o.depositDue) o.depositStatus = "due";
+              else o.depositStatus = "unpaid";
+            }
+            if (relDrift) {
+              o.releasePaidAmt = reconRelPaid;
+              const relInv = o.releaseAmt || 0;
+              if (relInv > 0 && reconRelPaid >= relInv - 0.01) o.releaseStatus = "paid";
+              else if (reconRelPaid > 0.01) o.releaseStatus = "partial";
+              else if (o.releaseDue) o.releaseStatus = "due";
+              else o.releaseStatus = "unpaid";
+            }
+            // For manually-paid stages with no payments, set paidAmt to invoice amt
+            if (depManualPaid) o.depositPaidAmt = o.depositAmt || 0;
+            if (relManualPaid) o.releasePaidAmt = o.releaseAmt || 0;
             staleUpdates.push(o);
           }
+          // For manually-paid stages, ensure paidAmt reflects the full amount
+          if (depManualPaid && curDepPaid < 0.01) { o.depositPaidAmt = o.depositAmt || 0; staleUpdates.push(o); }
+          if (relManualPaid && curRelPaid < 0.01) { o.releasePaidAmt = o.releaseAmt || 0; staleUpdates.push(o); }
         });
 
         // Persist reconciled values back to sheet in background (don't block response)

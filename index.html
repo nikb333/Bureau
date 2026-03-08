@@ -1273,10 +1273,12 @@ function ordersToLineItems(orders){
   orders.forEach(o=>{
     const hasDep=o.depositAmt>0;
     const hasRel=o.releaseAmt>0;
-    const depPaidAmt=+(o.depositPaidAmt)||0;
-    const relPaidAmt=+(o.releasePaidAmt)||0;
-    const depOutstanding=Math.max(o.depositAmt-depPaidAmt,0);
-    const relOutstanding=Math.max(o.releaseAmt-relPaidAmt,0);
+    // For manually-marked-paid orders, paidAmt may be 0 in payment records
+    // but status is "paid" — treat as fully paid
+    const depPaidAmt=o.depositStatus==="paid"?Math.max(+(o.depositPaidAmt)||0,o.depositAmt||0):(+(o.depositPaidAmt)||0);
+    const relPaidAmt=o.releaseStatus==="paid"?Math.max(+(o.releasePaidAmt)||0,o.releaseAmt||0):(+(o.releasePaidAmt)||0);
+    const depOutstanding=o.depositStatus==="paid"?0:Math.max(o.depositAmt-depPaidAmt,0);
+    const relOutstanding=o.releaseStatus==="paid"?0:Math.max(o.releaseAmt-relPaidAmt,0);
     if(hasDep&&hasRel){
       items.push({...o,lineType:"Deposit",lineAmount:o.depositAmt,lineStatus:o.depositStatus,lineDue:o.depositDue,linePaid:o.depositPaid,lineKey:o.id+"-dep",linePaidAmt:depPaidAmt,lineOutstanding:depOutstanding});
       items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",linePaidAmt:relPaidAmt,lineOutstanding:relOutstanding});
@@ -1285,8 +1287,8 @@ function ordersToLineItems(orders){
     }else if(hasRel){
       items.push({...o,lineType:"Release",lineAmount:o.releaseAmt,lineStatus:o.releaseStatus,lineDue:o.releaseDue,linePaid:o.releasePaid,lineKey:o.id+"-rel",linePaidAmt:relPaidAmt,lineOutstanding:relOutstanding});
     }else{
-      // Single-amount PO — treat as Release
-      items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel",linePaidAmt:relPaidAmt,lineOutstanding:Math.max(o.totalValue-relPaidAmt,0)});
+      const totPaidAmt=o.releaseStatus==="paid"?Math.max(+(o.releasePaidAmt)||0,o.totalValue||0):(+(o.releasePaidAmt)||0);
+      items.push({...o,lineType:"Release",lineAmount:o.totalValue,lineStatus:o.releaseStatus||"unpaid",lineDue:o.releaseDue||"",linePaid:o.releasePaid||"",lineKey:o.id+"-rel",linePaidAmt:totPaidAmt,lineOutstanding:o.releaseStatus==="paid"?0:Math.max(o.totalValue-totPaidAmt,0)});
     }
   });
   return items;

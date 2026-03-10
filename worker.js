@@ -1275,6 +1275,13 @@ CRITICAL — PO Reference vs Invoice Number:
 
 Determine the document type from: purchase_order, commercial_invoice, remittance, freight_invoice. Then extract data. Return ONLY JSON:
 If purchase_order: {"doc_type":"purchase_order","supplier":"Soundbox|Hecor|Dawon|Sunon","po_reference":"PO-XXX","invoice_number":"<full original ref>","po_date":"YYYY-MM-DD","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"<supplier name only>","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","po_date":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
+CRITICAL — Remittance amount extraction:
+Remittances often show MULTIPLE currencies (e.g. a GBP bank paying a USD amount to a Chinese supplier). The document may show a "Foreign Currency Payment Amount" in USD and a "Base Currency Amount" or "Settlement Amount" in GBP/AUD/CAD.
+ALWAYS extract the USD amount as the primary amount, NOT the local/base/settlement currency amount. The USD amount is what matches our PO values.
+Look for columns/fields labeled "Foreign Currency", "Payment Amount (USD)", "Transfer Amount" — these are typically the USD figure.
+If the document shows e.g. "91413.28 (USD)" and "68549.85 (GBP)", extract amount=91413.28 and currency="USD".
+Only use a non-USD amount if USD is genuinely not present on the document.
+
 If remittance: {"doc_type":"remittance","bank_account_hint":"AU-NAB|UK-HSBC|US-Chase|CA-RBC","source_entity":"AU|UK|US|CA","payment_date":"YYYY-MM-DD","amount":0,"currency":"USD","po_references":[""],"payment_type":"Deposit|Release|Full Amount","reference":"<bank transaction/reference number from the remittance>","notes":"","confidence":"high|medium|low","confidence_details":{"amount":"high|medium|low","payment_date":"high|medium|low","source_entity":"high|medium|low","po_references":"high|medium|low","reference":"high|medium|low"}}
 If commercial_invoice: Use the SAME structure as purchase_order but with doc_type "commercial_invoice". Extract deposit_amount and release_amount from the invoice (typically 30% deposit / 70% release of total). Use invoice_date as po_date if no separate PO date found. {"doc_type":"commercial_invoice","supplier":"Soundbox|Hecor|Dawon|Sunon","po_reference":"PO-XXX","invoice_number":"<full original ref>","po_date":"YYYY-MM-DD","destination_region":"AU|UK|US|CA","currency":"USD|RMB","total_value":0,"deposit_amount":0,"release_amount":0,"notes":"<supplier name only>","confidence":"high|medium|low","confidence_details":{"supplier":"high|medium|low","po_reference":"high|medium|low","po_date":"high|medium|low","total_value":"high|medium|low","destination_region":"high|medium|low","deposit_amount":"high|medium|low"}}
 If freight_invoice: {"doc_type":"freight_invoice","invoice_number":"","tracking_number":"","total_amount":0,"currency":"AUD","destination_region":"AU|UK|US|CA","po_reference":"PO-XXX","origin":"","destination":"","notes":"","confidence":"high|medium|low","confidence_details":{"invoice_number":"high|medium|low","total_amount":"high|medium|low","po_reference":"high|medium|low"}}
@@ -1366,23 +1373,46 @@ Hints for destination_region: GB prefix=UK, US=US, CA=CA, AU/E=AU.`;
           const curDepPaid = +(o.depositPaidAmt) || 0;
           const curRelPaid = +(o.releasePaidAmt) || 0;
 
-          // Detect drift: if stored values don't match actual payment sums
-          if (Math.abs(reconDepPaid - curDepPaid) > 0.01 || Math.abs(reconRelPaid - curRelPaid) > 0.01) {
+          // Reconcile paid amounts from payment records, but NEVER downgrade
+          // a "paid" status — manual mark-paid is the final word.
+          // If status is "paid", keep it paid and ensure paidAmt >= invoiceAmt.
+          // If status is NOT "paid", reconcile normally from payment records.
+          let changed = false;
+          const depIsPaid = o.depositStatus === "paid";
+          const relIsPaid = o.releaseStatus === "paid";
+
+          // Deposit reconciliation
+          if (depIsPaid) {
+            // Status is paid — never downgrade. Ensure paidAmt reflects full amount.
+            const depInv = o.depositAmt || 0;
+            const correctAmt = Math.max(reconDepPaid, depInv);
+            if (Math.abs(correctAmt - curDepPaid) > 0.01) { o.depositPaidAmt = correctAmt; changed = true; }
+          } else if (Math.abs(reconDepPaid - curDepPaid) > 0.01) {
             o.depositPaidAmt = reconDepPaid;
-            o.releasePaidAmt = reconRelPaid;
-            // Recalculate statuses
             const depInv = o.depositAmt || 0;
             if (depInv > 0 && reconDepPaid >= depInv - 0.01) o.depositStatus = "paid";
             else if (reconDepPaid > 0.01) o.depositStatus = "partial";
             else if (o.depositDue) o.depositStatus = "due";
             else o.depositStatus = "unpaid";
+            changed = true;
+          }
+
+          // Release reconciliation
+          if (relIsPaid) {
+            const relInv = o.releaseAmt || 0;
+            const correctAmt = Math.max(reconRelPaid, relInv);
+            if (Math.abs(correctAmt - curRelPaid) > 0.01) { o.releasePaidAmt = correctAmt; changed = true; }
+          } else if (Math.abs(reconRelPaid - curRelPaid) > 0.01) {
+            o.releasePaidAmt = reconRelPaid;
             const relInv = o.releaseAmt || 0;
             if (relInv > 0 && reconRelPaid >= relInv - 0.01) o.releaseStatus = "paid";
             else if (reconRelPaid > 0.01) o.releaseStatus = "partial";
             else if (o.releaseDue) o.releaseStatus = "due";
             else o.releaseStatus = "unpaid";
-            staleUpdates.push(o);
+            changed = true;
           }
+
+          if (changed) staleUpdates.push(o);
         });
 
         // Persist reconciled values back to sheet in background (don't block response)

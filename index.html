@@ -1150,7 +1150,9 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
           // Upload remittance to each unique PO folder — use driveFolderId from order data when available
           const seen=new Set();const uploads=[];
           allocs.forEach(a=>{if(!seen.has(a.orderId)){seen.add(a.orderId);const o=orders.find(x=>x.id===a.orderId);uploads.push({ref:a.ref,folderId:o?.driveFolderId||""});}});
-          await Promise.all(uploads.map(u=>apiUploadFile(file,u.ref,{...uploadMeta,folderId:u.folderId}).catch(e=>({error:true,ref:u.ref,msg:e.message}))));
+          const uploadResults=await Promise.all(uploads.map(u=>apiUploadFile(file,u.ref,{...uploadMeta,folderId:u.folderId}).catch(e=>({error:true,ref:u.ref,msg:e.message}))));
+          const failedUploads=uploadResults.filter(r=>r?.error);
+          if(failedUploads.length>0){alert("Some remittance uploads failed:\n"+failedUploads.map(f=>`${f.ref}: ${f.msg}`).join("\n"));}
         }
         // Store remittance details for email confirmation
         const poRefs=[...new Set(allocs.map(a=>a.ref))];

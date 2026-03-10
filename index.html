@@ -869,7 +869,11 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
   const handleConfirm=()=>{
     if(allocs.length===0){alert("Please allocate payment to at least one PO");return;}
     if(Math.abs(remaining)>0.01){alert(`Must allocate exact payment amount.\nRemaining: ${usd(remaining)}\n\n${remaining>0?"Add more POs or adjust amounts":"Remove allocations or reduce amounts"}`);return;}
-    setEd(p=>({...p,_allocations:allocs}));onConfirm();
+    // Pass merged ed data directly to onConfirm — React state updates are async
+    // so reading item.ed in confirmCurrent would miss _allocations if we only used setEd
+    const mergedEd={...ed,_allocations:allocs};
+    setEd(p=>({...p,_allocations:allocs}));
+    onConfirm(mergedEd);
   };
 
   const LineBadge=({type})=><span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:4,background:type==="deposit"?"rgba(59,130,246,.15)":"rgba(16,185,129,.15)",color:type==="deposit"?"#2563eb":"#059669",letterSpacing:".04em"}}>{type==="deposit"?"DEPOSIT":"RELEASE"}</span>;
@@ -994,7 +998,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
   const Row=({label,field,conf,children,attn,attnLabel})=>{const c=conf||cd[field]||oc;const cls="rr"+(attn==="dest"?" rr-attn rr-attn-dest":attn?" rr-attn":"");return <div className={cls}><div className="rr-s">{attn?<div style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>👁</div>:<ConfIcon level={c}/>}</div><div className="rr-l">{label}{attnLabel&&<span className="attn-label" style={{background:attn==="dest"?"var(--rdb)":"var(--amb)",color:attn==="dest"?"var(--rd)":"var(--am)"}}>{attnLabel}</span>}</div><div className="rr-i">{children}</div></div>;};
   const refInput=ed?.po_references?.[0]||ed?.reference||ed?.po_reference||"";
   const matches=useMemo(()=>(docType==="remittance"||docType==="commercial_invoice"||docType==="freight_invoice")?fuzzyMatchPO(refInput,orders,payments):[],[refInput,orders,payments,docType]);
-  const handleConfirm=()=>{if(multiPO&&allocs.length>0){setEd(p=>({...p,_multiAllocs:allocs}));setTimeout(()=>onConfirm(),0);}else onConfirm();};
+  const handleConfirm=()=>{if(multiPO&&allocs.length>0){const merged={...ed,_multiAllocs:allocs};setEd(p=>({...p,_multiAllocs:allocs}));onConfirm(merged);}else onConfirm();};
 
   return <div className="rc">
     <div className="rc-h"><div><div className="rc-t">Review Extracted Data</div><div className="rc-f">{fileName}</div></div><div className={`rc-c rc-c-${oc}`}>{oc==="high"?"✓ High Confidence":oc==="medium"?"? Check Fields":"⚠ Needs Review"}</div></div>
@@ -1116,10 +1120,10 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
     setSt("review");
   };
 
-  const confirmCurrent=async()=>{
+  const confirmCurrent=async(edOverride)=>{
     const item=queue[activeIdx];
     if(!item)return;
-    const dt=item.docType,d=item.ed,file=item.file;
+    const dt=item.docType,d=edOverride||item.ed,file=item.file;
     // Update queue status
     setQueue(q=>q.map((x,i)=>i===activeIdx?{...x,status:"saving"}:x));
     loading.show("Saving "+file.name+"...");

@@ -442,6 +442,8 @@ function EditOrderModal({order,payments,onSave,onRefresh,onClose}){
       const patch={[field]:value};
       if(field==="depositPaid")patch.depositStatus=value?"paid":(ed.depositDue?"due":"unpaid");
       if(field==="releasePaid")patch.releaseStatus=value?"paid":(ed.releaseDue?"due":"unpaid");
+      if(field==="depositPaidAmt"){const amt=+(value)||0;if(amt<=0){patch.depositStatus=ed.depositDue?"due":"unpaid";patch.depositPaid="";}else if(amt>=(+(ed.depositAmt)||0)-0.01){patch.depositStatus="paid";if(!ed.depositPaid)patch.depositPaid=new Date().toISOString().slice(0,10);}else{patch.depositStatus="partial";}}
+      if(field==="releasePaidAmt"){const amt=+(value)||0;if(amt<=0){patch.releaseStatus=ed.releaseDue?"due":"unpaid";patch.releasePaid="";}else if(amt>=(+(ed.releaseAmt)||0)-0.01){patch.releaseStatus="paid";if(!ed.releasePaid)patch.releasePaid=new Date().toISOString().slice(0,10);}else{patch.releaseStatus="partial";}}
       await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,patch);
       sf(field,value);
       if(onRefresh)try{await onRefresh();}catch(e){}
@@ -488,7 +490,7 @@ function EditOrderModal({order,payments,onSave,onRefresh,onClose}){
     if(editing){
       const inputStyle={fontSize:14,padding:"6px 10px",border:"1px solid var(--ac)",borderRadius:6,outline:"none",fontFamily:mono?"'JetBrains Mono',monospace":"'DM Sans',sans-serif",width:"100%",boxSizing:"border-box"};
       return <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
-        <span className="em-field-label">{label}</span>
+        {label&&<span className="em-field-label">{label}</span>}
         <div style={{flex:1}}>
           {type==="select"?<select ref={iRef} value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={handleKey} style={inputStyle}>{options?.includes("")||<option value="">—</option>}{(options||[]).map(o=><option key={o} value={o}>{o}</option>)}</select>
           :<input ref={iRef} type={type||"text"} value={val} onChange={e=>setVal(e.target.value)} onBlur={commit} onKeyDown={handleKey} style={inputStyle}/>}
@@ -498,7 +500,7 @@ function EditOrderModal({order,payments,onSave,onRefresh,onClose}){
     }
     const show=displayValue||value;
     return <div className="em-field" onClick={()=>setEditing(true)}>
-      <span className="em-field-label">{label}</span>
+      {label&&<span className="em-field-label">{label}</span>}
       {show?<span className={mono?"em-field-value":"em-field-value"} style={mono?{fontFamily:"'JetBrains Mono',monospace"}:{}}>{show}</span>:<span className="em-field-empty">Not set — click to edit</span>}
       {fieldSaving?<span className="spinner" style={{width:12,height:12,borderWidth:2}}/>:<span className="em-pen">✏️</span>}
     </div>;
@@ -549,42 +551,60 @@ function EditOrderModal({order,payments,onSave,onRefresh,onClose}){
     </div>
 
     {/* Deposit section */}
-    <div style={{marginTop:16,padding:14,background:depIsPaid?"#f0fdf4":"var(--s2)",borderRadius:"var(--r)",border:`1px solid ${depIsPaid?"#bbf7d0":"var(--bd)"}`}}>
+    {(()=>{const amt=+(ed.depositAmt)||0;const paid=+(ed.depositPaidAmt)||0;const pct=amt>0?Math.min(paid/amt*100,100):0;const linkedPmts=(payments||[]).filter(p=>(p.orderIds||[]).includes(order.id)&&((()=>{const a=(p.allocations||{})[order.id];return a&&typeof a==="object"?(+(a.deposit)||0)>0:(p.type==="Deposit"||p.type==="Full Amount");})()));
+    return <div style={{marginTop:16,padding:14,background:depIsPaid?"#f0fdf4":"var(--s2)",borderRadius:"var(--r)",border:`1px solid ${depIsPaid?"#bbf7d0":"var(--bd)"}`}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>Deposit</span>
           <StatusBadge status={depIsPaid?"paid":(ed.depositDue?"due":"unpaid")} dueDate={ed.depositDue}/>
         </div>
-        {+(ed.depositAmt)>0&&<PaidToggle isPaid={depIsPaid} target="deposit"/>}
+        {amt>0&&<PaidToggle isPaid={depIsPaid} target="deposit"/>}
       </div>
-      <div style={{display:"grid",gap:2}}>
-        <EF label="Amount" field="depositAmt" value={ed.depositAmt} type="number" mono displayValue={ed.depositAmt?(+(ed.depositAmt)).toLocaleString():null}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <div><div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,marginBottom:2}}>INVOICE AMOUNT</div><EF label="" field="depositAmt" value={ed.depositAmt} type="number" mono displayValue={ed.depositAmt?(+(ed.depositAmt)).toLocaleString():null}/></div>
+        <div><div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,marginBottom:2}}>AMOUNT PAID</div><EF label="" field="depositPaidAmt" value={ed.depositPaidAmt||"0"} type="number" mono displayValue={(+(ed.depositPaidAmt)||0).toLocaleString()}/></div>
+      </div>
+      {amt>0&&<div style={{marginBottom:8}}><div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"var(--gn)":"var(--ac)",borderRadius:3,transition:"width .3s"}}/></div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{usd(toUSD(paid,ed.currency||"USD"))} of {usd(toUSD(amt,ed.currency||"USD"))} USD ({Math.round(pct)}%)</div></div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <EF label="Due Date" field="depositDue" value={ed.depositDue} type="date" displayValue={fmtDate(ed.depositDue)}/>
-        {depIsPaid&&<EF label="Paid Date" field="depositPaid" value={ed.depositPaid} type="date" displayValue={fmtDate(ed.depositPaid)}/>}
+        <EF label="Paid Date" field="depositPaid" value={ed.depositPaid} type="date" displayValue={fmtDate(ed.depositPaid)}/>
       </div>
-      {+(ed.depositAmt)>0&&depIsPaid&&paymentTotals.deposit<(+(ed.depositAmt)||0)-0.01&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",padding:"6px 10px",borderRadius:4,border:"1px solid #fde68a"}}>
-        Payment records: {usd(toUSD(paymentTotals.deposit,ed.currency||"USD"))} of {usd(toUSD(+(ed.depositAmt)||0,ed.currency||"USD"))} USD — manually marked as paid
+      {linkedPmts.length>0&&<div style={{marginTop:10,borderTop:"1px solid var(--bd)",paddingTop:8}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:6}}>LINKED PAYMENTS</div>
+        {linkedPmts.map(p=>{const a=(p.allocations||{})[order.id];const depAmt=a&&typeof a==="object"?(+(a.deposit)||0):(+(a)||+(p.amount)||0);return <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 8px",background:"var(--wh)",borderRadius:4,marginBottom:4,border:"1px solid var(--bd)",fontSize:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}><span className="mono" style={{fontWeight:600}}>{(depAmt).toLocaleString()} {p.currency||"USD"}</span><span style={{color:"var(--tx3)"}}>{fmtDate(p.date)}</span><span style={{color:"var(--tx3)",fontSize:10}}>{p.id}</span></div>
+          <button onClick={async()=>{if(!confirm(`Unlink this payment (${p.id}) from ${order.ref} deposit?`))return;loading.show("Unlinking payment...");try{const newOids=(p.orderIds||[]).filter(id=>id!==order.id);const newAllocs={...(p.allocations||{})};if(newAllocs[order.id]&&typeof newAllocs[order.id]==="object"){const cur={...newAllocs[order.id]};cur.deposit=0;if((+(cur.release)||0)<=0)delete newAllocs[order.id];else newAllocs[order.id]=cur;}else{delete newAllocs[order.id];}const keepOids=Object.keys(newAllocs).length>0?[...new Set([...newOids,...Object.keys(newAllocs)])]:newOids;await apiPatch("/api/payments/"+encodeURIComponent(p.id),{orderIds:keepOids,allocations:newAllocs});await saveField("depositPaidAmt",Math.max(0,(+(ed.depositPaidAmt)||0)-depAmt));if(onRefresh)await onRefresh();}catch(e){alert("Unlink failed: "+e.message);}finally{loading.hide();}}} style={{fontSize:10,padding:"2px 8px",borderRadius:4,border:"1px solid var(--rd)",background:"#fef2f2",color:"var(--rd)",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Unlink</button>
+        </div>;})}
       </div>}
-    </div>
+    </div>;})()}
 
     {/* Release section */}
-    <div style={{marginTop:10,padding:14,background:relIsPaid?"#f0fdf4":"var(--s2)",borderRadius:"var(--r)",border:`1px solid ${relIsPaid?"#bbf7d0":"var(--bd)"}`}}>
+    {(()=>{const amt=+(ed.releaseAmt)||0;const paid=+(ed.releasePaidAmt)||0;const pct=amt>0?Math.min(paid/amt*100,100):0;const linkedPmts=(payments||[]).filter(p=>(p.orderIds||[]).includes(order.id)&&((()=>{const a=(p.allocations||{})[order.id];return a&&typeof a==="object"?(+(a.release)||0)>0:(p.type==="Release"||p.type==="Full Amount");})()));
+    return <div style={{marginTop:10,padding:14,background:relIsPaid?"#f0fdf4":"var(--s2)",borderRadius:"var(--r)",border:`1px solid ${relIsPaid?"#bbf7d0":"var(--bd)"}`}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>Release</span>
           <StatusBadge status={relIsPaid?"paid":(ed.releaseDue?"due":"unpaid")} dueDate={ed.releaseDue}/>
         </div>
-        {+(ed.releaseAmt)>0&&<PaidToggle isPaid={relIsPaid} target="release"/>}
+        {amt>0&&<PaidToggle isPaid={relIsPaid} target="release"/>}
       </div>
-      <div style={{display:"grid",gap:2}}>
-        <EF label="Amount" field="releaseAmt" value={ed.releaseAmt} type="number" mono displayValue={ed.releaseAmt?(+(ed.releaseAmt)).toLocaleString():null}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <div><div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,marginBottom:2}}>INVOICE AMOUNT</div><EF label="" field="releaseAmt" value={ed.releaseAmt} type="number" mono displayValue={ed.releaseAmt?(+(ed.releaseAmt)).toLocaleString():null}/></div>
+        <div><div style={{fontSize:10,color:"var(--tx3)",fontWeight:600,marginBottom:2}}>AMOUNT PAID</div><EF label="" field="releasePaidAmt" value={ed.releasePaidAmt||"0"} type="number" mono displayValue={(+(ed.releasePaidAmt)||0).toLocaleString()}/></div>
+      </div>
+      {amt>0&&<div style={{marginBottom:8}}><div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:pct+"%",background:pct>=100?"var(--gn)":"var(--ac)",borderRadius:3,transition:"width .3s"}}/></div><div style={{fontSize:10,color:"var(--tx3)",marginTop:2}}>{usd(toUSD(paid,ed.currency||"USD"))} of {usd(toUSD(amt,ed.currency||"USD"))} USD ({Math.round(pct)}%)</div></div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
         <EF label="Due Date" field="releaseDue" value={ed.releaseDue} type="date" displayValue={fmtDate(ed.releaseDue)}/>
-        {relIsPaid&&<EF label="Paid Date" field="releasePaid" value={ed.releasePaid} type="date" displayValue={fmtDate(ed.releasePaid)}/>}
+        <EF label="Paid Date" field="releasePaid" value={ed.releasePaid} type="date" displayValue={fmtDate(ed.releasePaid)}/>
       </div>
-      {+(ed.releaseAmt)>0&&relIsPaid&&paymentTotals.release<(+(ed.releaseAmt)||0)-0.01&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",padding:"6px 10px",borderRadius:4,border:"1px solid #fde68a"}}>
-        Payment records: {usd(toUSD(paymentTotals.release,ed.currency||"USD"))} of {usd(toUSD(+(ed.releaseAmt)||0,ed.currency||"USD"))} USD — manually marked as paid
+      {linkedPmts.length>0&&<div style={{marginTop:10,borderTop:"1px solid var(--bd)",paddingTop:8}}>
+        <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",marginBottom:6}}>LINKED PAYMENTS</div>
+        {linkedPmts.map(p=>{const a=(p.allocations||{})[order.id];const relAmt=a&&typeof a==="object"?(+(a.release)||0):(+(a)||+(p.amount)||0);return <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 8px",background:"var(--wh)",borderRadius:4,marginBottom:4,border:"1px solid var(--bd)",fontSize:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}><span className="mono" style={{fontWeight:600}}>{(relAmt).toLocaleString()} {p.currency||"USD"}</span><span style={{color:"var(--tx3)"}}>{fmtDate(p.date)}</span><span style={{color:"var(--tx3)",fontSize:10}}>{p.id}</span></div>
+          <button onClick={async()=>{if(!confirm(`Unlink this payment (${p.id}) from ${order.ref} release?`))return;loading.show("Unlinking payment...");try{const newOids=(p.orderIds||[]).filter(id=>id!==order.id);const newAllocs={...(p.allocations||{})};if(newAllocs[order.id]&&typeof newAllocs[order.id]==="object"){const cur={...newAllocs[order.id]};cur.release=0;if((+(cur.deposit)||0)<=0)delete newAllocs[order.id];else newAllocs[order.id]=cur;}else{delete newAllocs[order.id];}const keepOids=Object.keys(newAllocs).length>0?[...new Set([...newOids,...Object.keys(newAllocs)])]:newOids;await apiPatch("/api/payments/"+encodeURIComponent(p.id),{orderIds:keepOids,allocations:newAllocs});await saveField("releasePaidAmt",Math.max(0,(+(ed.releasePaidAmt)||0)-relAmt));if(onRefresh)await onRefresh();}catch(e){alert("Unlink failed: "+e.message);}finally{loading.hide();}}} style={{fontSize:10,padding:"2px 8px",borderRadius:4,border:"1px solid var(--rd)",background:"#fef2f2",color:"var(--rd)",cursor:"pointer",fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Unlink</button>
+        </div>;})}
       </div>}
-    </div>
+    </div>;})()}
 
     {/* Mark as Paid note panel */}
     {markPaidTarget&&<div style={{marginTop:10,padding:16,background:"linear-gradient(135deg,#ecfdf5,#d1fae5)",border:"2px solid var(--gn)",borderRadius:"var(--r2)"}}>

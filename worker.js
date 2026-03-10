@@ -623,18 +623,7 @@ let supplierFolderCache = null;
 
 async function getParentFolderId(token) {
   if (driveParentFolderId) return driveParentFolderId;
-  const q = encodeURIComponent(
-    "name = 'Supplier purchase orders' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-  );
-  const res = await fetch(`${DRIVE_BASE}/files?q=${q}&fields=files(id,name)&pageSize=5&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Drive search failed: ${await res.text()}`);
-  const data = await res.json();
-  if (!data.files?.length) {
-    throw new Error('Folder "Supplier purchase orders" not found. Share it with the service account.');
-  }
-  driveParentFolderId = data.files[0].id;
+  driveParentFolderId = "14f4ZH9m72RYL4cCXC0yUaPIinLdgBkIn";
   return driveParentFolderId;
 }
 

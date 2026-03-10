@@ -398,11 +398,23 @@ function DropZone({onFiles,compact,label}){const[drag,setDrag]=useState(false);c
 function HelpModal({onClose}){return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:700,width:"90%",maxHeight:"90vh",overflow:"auto",padding:32}} onClick={e=>e.stopPropagation()}><h2 style={{marginBottom:20}}>📚 Bureau Ops — System Guide</h2><div style={{fontSize:14,lineHeight:1.6}}><h3 style={{marginTop:0,marginBottom:10}}>🏗️ Architecture</h3><div style={{background:"var(--s2)",padding:16,borderRadius:8,marginBottom:16,fontFamily:"'JetBrains Mono',monospace",fontSize:12,lineHeight:1.8}}>Dashboard (Cloudflare Pages)<br/>↓ API calls<br/>Worker (bureau.nik-d88.workers.dev)<br/>↓ reads/writes<br/>Google Sheets ("Bureau Ops Data")<br/>+<br/>Google Drive ("Supplier purchase orders")</div><h3 style={{marginTop:20,marginBottom:10}}>🔗 Key Links</h3><ul style={{marginLeft:20,marginBottom:16}}><li><strong>Dashboard:</strong> <a href="https://bureau.pages.dev" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>https://bureau.pages.dev</a> (auto-deploys from GitHub)</li><li><strong>Worker API:</strong> <a href="https://bureau.nik-d88.workers.dev/api/health" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>https://bureau.nik-d88.workers.dev</a> (check /api/health)</li><li><strong>GitHub Repo:</strong> <a href="https://github.com/nikb333/Bureau" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>https://github.com/nikb333/Bureau</a> (private)</li><li><strong>Google Sheet:</strong> Search for "Bureau Ops Data" in Google Drive (2 tabs: Orders, Payments)</li><li><strong>Document Storage:</strong> Search for "Supplier purchase orders" folder in Google Drive</li></ul><h3 style={{marginTop:20,marginBottom:10}}>📊 How It Works</h3><p style={{marginBottom:10}}>This dashboard manages purchase orders and payments across 4 Bureau entities (AU, UK, US, CA). The entire system is intentionally simple:</p><ol style={{marginLeft:20,marginBottom:16}}><li><strong>Google Sheets = Database</strong> — All data is stored in a flat Google Sheet. Anyone can open it and edit data directly if the dashboard breaks.</li><li><strong>Cloudflare Worker = API</strong> — Thin API layer that reads/writes the sheet and manages file uploads to Google Drive.</li><li><strong>Single HTML File</strong> — The entire dashboard is one self-contained HTML file with no build step. Just React + Babel from CDN.</li></ol><h3 style={{marginTop:20,marginBottom:10}}>🗄️ Google Sheets Database</h3><p style={{marginBottom:10}}><strong>Sheet Name:</strong> "Bureau Ops Data"<br/><strong>Tabs:</strong> Orders | Payments</p><p style={{marginBottom:10}}><strong>Orders tab columns:</strong><br/>ID, Region, Ref, Invoice, Supplier, Currency, Total Value, Deposit Amt, Deposit Status, Deposit Due, Deposit Paid, Release Amt, Release Status, Release Due, Release Paid, Notes, Drive Folder ID, Created, Updated, PO Date</p><p style={{marginBottom:20}}><strong>Payments tab columns:</strong><br/>ID, Bank Account, Source Entity, Amount, Currency, Payment Date, Payment Type, Order IDs, Allocations (JSON), Notes, Doc Name, Created</p><h3 style={{marginTop:20,marginBottom:10}}>📁 Google Drive Storage</h3><p style={{marginBottom:10}}><strong>Folder:</strong> "Supplier purchase orders"<br/><strong>Structure:</strong> Supplier folders → PO folders → Documents</p><p style={{marginBottom:20}}>Each PO gets its own folder under the supplier. The folder ID is stored in the Orders sheet.</p><h3 style={{marginTop:20,marginBottom:10}}>🔧 Troubleshooting</h3><p style={{marginBottom:8}}><strong>Dashboard not loading?</strong></p><ul style={{marginLeft:20,marginBottom:12}}><li>Check Worker status: visit <a href="https://bureau.nik-d88.workers.dev/api/health" target="_blank" rel="noopener" style={{color:"var(--ac)"}}>/api/health</a></li><li>Clear browser cache (Ctrl+Shift+R)</li><li>Open Google Sheets directly: search "Bureau Ops Data"</li></ul><p style={{marginBottom:8}}><strong>Data looks wrong?</strong></p><ul style={{marginLeft:20,marginBottom:12}}><li>Open the Google Sheet and verify data manually</li><li>Check the "Updated" column to see when data changed</li><li>All dates are YYYY-MM-DD format</li></ul><p style={{marginBottom:8}}><strong>Documents not uploading?</strong></p><ul style={{marginLeft:20,marginBottom:12}}><li>Check Google Drive "Supplier purchase orders" folder</li><li>Verify service account has Editor access</li><li>Check browser console for errors (F12)</li></ul><h3 style={{marginTop:20,marginBottom:10}}>🔑 Manual Access</h3><p style={{marginBottom:10}}>If you need to make changes directly:</p><ul style={{marginLeft:20,marginBottom:10}}><li><strong>View/edit data:</strong> Open "Bureau Ops Data" sheet in Google Drive</li><li><strong>View/upload docs:</strong> Open "Supplier purchase orders" folder in Google Drive</li><li><strong>API access:</strong> Use the Worker endpoints (GET /api/orders, GET /api/payments, etc.)</li><li><strong>Code changes:</strong> Push to GitHub main branch → auto-deploys in ~30 seconds</li></ul></div><div style={{marginTop:24,textAlign:"right"}}><button className="btn btn-primary" onClick={onClose}>Got it</button></div></div></div>;}
 
 // EditOrderModal — click-to-edit fields with auto-save, paid/unpaid toggle
-function EditOrderModal({order,onSave,onRefresh,onClose}){
+function EditOrderModal({order,payments,onSave,onRefresh,onClose}){
   const loading=useLoading();
   const[ed,setEd]=useState({...order});const[saving,setSaving]=useState(false);
   const[uploadFile,setUploadFile]=useState(null);const[uploading,setUploading]=useState(false);const[uploaded,setUploaded]=useState(false);
   const[markPaidNote,setMarkPaidNote]=useState("");const[markPaidTarget,setMarkPaidTarget]=useState(null);
+  // Calculate actual payment record totals for this order
+  const paymentTotals=useMemo(()=>{
+    const t={deposit:0,release:0};
+    (payments||[]).forEach(p=>{
+      const allocs=p.allocations||{};
+      if(!(p.orderIds||[]).includes(order.id))return;
+      const a=allocs[order.id];
+      if(a&&typeof a==="object"&&!Array.isArray(a)){t.deposit+=+(a.deposit)||0;t.release+=+(a.release)||0;}
+      else{const flat=+(a)||+(p.amount)||0;if(p.type==="Deposit"||p.type==="Full Amount")t.deposit+=flat;if(p.type==="Release"||p.type==="Full Amount")t.release+=flat;}
+    });
+    return{deposit:+t.deposit.toFixed(2),release:+t.release.toFixed(2)};
+  },[payments,order.id]);
   const upRef=useRef();
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   // Auto-save a single field
@@ -417,7 +429,7 @@ function EditOrderModal({order,onSave,onRefresh,onClose}){
       if(onRefresh)try{await onRefresh();}catch(e){}
     }catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}
   };
-  // Mark paid with required note
+  // Mark paid with required note — also sets paidAmt to invoice amount so reconciliation doesn't override
   const markPaid=async(target)=>{
     if(!markPaidNote.trim()){alert("Please add a note explaining why this is being manually marked as paid.");return;}
     setSaving(true);loading.show(`Marking ${target} as paid...`);
@@ -426,12 +438,12 @@ function EditOrderModal({order,onSave,onRefresh,onClose}){
     const newNotes=((ed.notes||"")?(ed.notes+"; "):"")+notePrefix+markPaidNote.trim();
     try{
       const patch={notes:newNotes};
-      if(target==="deposit"||target==="both"){patch.depositStatus="paid";patch.depositPaid=ed.depositPaid||today;}
-      if(target==="release"||target==="both"){patch.releaseStatus="paid";patch.releasePaid=ed.releasePaid||today;}
+      if(target==="deposit"||target==="both"){patch.depositStatus="paid";patch.depositPaid=ed.depositPaid||today;patch.depositPaidAmt=+(ed.depositAmt)||0;}
+      if(target==="release"||target==="both"){patch.releaseStatus="paid";patch.releasePaid=ed.releasePaid||today;patch.releasePaidAmt=+(ed.releaseAmt)||0;}
       await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,patch);
       sf("notes",newNotes);
-      if(target==="deposit"||target==="both"){sf("depositStatus","paid");sf("depositPaid",ed.depositPaid||today);}
-      if(target==="release"||target==="both"){sf("releaseStatus","paid");sf("releasePaid",ed.releasePaid||today);}
+      if(target==="deposit"||target==="both"){sf("depositStatus","paid");sf("depositPaid",ed.depositPaid||today);sf("depositPaidAmt",+(ed.depositAmt)||0);}
+      if(target==="release"||target==="both"){sf("releaseStatus","paid");sf("releasePaid",ed.releasePaid||today);sf("releasePaidAmt",+(ed.releaseAmt)||0);}
       setMarkPaidTarget(null);setMarkPaidNote("");
       await onSave();
     }catch(e){alert("Mark paid failed: "+e.message);}finally{setSaving(false);loading.hide();}
@@ -475,11 +487,20 @@ function EditOrderModal({order,onSave,onRefresh,onClose}){
   };
   // Paid/unpaid toggle that auto-saves
   const PaidToggle=({isPaid,target})=>{
-    const togglePaid=()=>{
+    const togglePaid=async()=>{
       if(isPaid){
-        // Switching to unpaid
-        if(target==="deposit"){saveField("depositStatus","unpaid");saveField("depositPaid","");sf("depositStatus","unpaid");sf("depositPaid","");}
-        else{saveField("releaseStatus","unpaid");saveField("releasePaid","");sf("releaseStatus","unpaid");sf("releasePaid","");}
+        // Switching to unpaid — clear status, paid date, and paidAmt (let reconciliation recalculate from payment records)
+        setSaving(true);
+        try{
+          if(target==="deposit"){
+            await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{depositStatus:"unpaid",depositPaid:"",depositPaidAmt:0});
+            sf("depositStatus","unpaid");sf("depositPaid","");sf("depositPaidAmt",0);
+          }else{
+            await apiPatch(`/api/orders/${encodeURIComponent(order.id)}`,{releaseStatus:"unpaid",releasePaid:"",releasePaidAmt:0});
+            sf("releaseStatus","unpaid");sf("releasePaid","");sf("releasePaidAmt",0);
+          }
+          if(onRefresh)try{await onRefresh();}catch(e){}
+        }catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);}
       }else{
         // Switching to paid — require a note
         setMarkPaidTarget(target);
@@ -523,6 +544,9 @@ function EditOrderModal({order,onSave,onRefresh,onClose}){
         <EF label="Due Date" field="depositDue" value={ed.depositDue} type="date" displayValue={fmtDate(ed.depositDue)}/>
         {depIsPaid&&<EF label="Paid Date" field="depositPaid" value={ed.depositPaid} type="date" displayValue={fmtDate(ed.depositPaid)}/>}
       </div>
+      {+(ed.depositAmt)>0&&depIsPaid&&paymentTotals.deposit<(+(ed.depositAmt)||0)-0.01&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",padding:"6px 10px",borderRadius:4,border:"1px solid #fde68a"}}>
+        Payment records: {usd(toUSD(paymentTotals.deposit,ed.currency||"USD"))} of {usd(toUSD(+(ed.depositAmt)||0,ed.currency||"USD"))} USD — manually marked as paid
+      </div>}
     </div>
 
     {/* Release section */}
@@ -539,6 +563,9 @@ function EditOrderModal({order,onSave,onRefresh,onClose}){
         <EF label="Due Date" field="releaseDue" value={ed.releaseDue} type="date" displayValue={fmtDate(ed.releaseDue)}/>
         {relIsPaid&&<EF label="Paid Date" field="releasePaid" value={ed.releasePaid} type="date" displayValue={fmtDate(ed.releasePaid)}/>}
       </div>
+      {+(ed.releaseAmt)>0&&relIsPaid&&paymentTotals.release<(+(ed.releaseAmt)||0)-0.01&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",padding:"6px 10px",borderRadius:4,border:"1px solid #fde68a"}}>
+        Payment records: {usd(toUSD(paymentTotals.release,ed.currency||"USD"))} of {usd(toUSD(+(ed.releaseAmt)||0,ed.currency||"USD"))} USD — manually marked as paid
+      </div>}
     </div>
 
     {/* Mark as Paid note panel */}
@@ -1357,7 +1384,7 @@ function OrdersTab({orders,payments,onRefresh}){
       {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("paidAmt")}>Paid{si("paidAmt")}</th><th className="srt" onClick={()=>ts("outstanding")}>Outstanding{si("outstanding")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Docs</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div></div>}
     </div>
 
-    {editOrder&&<EditOrderModal order={editOrder} onSave={async()=>{await onRefresh();setEditOrder(null);}} onRefresh={onRefresh} onClose={()=>setEditOrder(null)}/>}
+    {editOrder&&<EditOrderModal order={editOrder} payments={payments} onSave={async()=>{await onRefresh();setEditOrder(null);}} onRefresh={onRefresh} onClose={()=>setEditOrder(null)}/>}
     {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}
   </>;
 }

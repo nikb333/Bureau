@@ -87,11 +87,12 @@ th.usd-col{background:#e8edfa;z-index:1}td.usd-col{background:rgba(37,99,235,.05
 .st{font-size:14px;font-weight:700;margin:24px 0 14px;display:flex;align-items:center;gap:8px}
 .loading-screen{display:flex;align-items:center;justify-content:center;height:100vh;gap:16px;flex-direction:column}
 .loading-screen .spinner{width:32px;height:32px;border-width:3px}
-.loading-overlay{position:fixed;top:0;left:0;right:0;z-index:9999;pointer-events:none;animation:lov-in .3s ease}
-.loading-overlay-bar{height:3px;background:linear-gradient(90deg,var(--ac),#818cf8,var(--ac));background-size:200% 100%;animation:lov-slide 1.2s linear infinite;border-radius:0 0 2px 2px}
-.loading-overlay-msg{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--wh);border:1px solid var(--bd);border-radius:8px;padding:8px 18px;box-shadow:0 4px 16px rgba(0,0,0,.1);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--tx);white-space:nowrap;pointer-events:auto}
+.loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);backdrop-filter:blur(2px);animation:lov-in .25s ease}
+.loading-overlay-card{background:var(--wh);border:1px solid var(--bd);border-radius:12px;padding:20px 32px;box-shadow:0 8px 32px rgba(0,0,0,.18);display:flex;align-items:center;gap:14px;font-size:14px;font-weight:600;color:var(--tx);white-space:nowrap}
+.loading-overlay-card .spinner{width:18px;height:18px;border-width:2.5px}
+.loading-overlay-bar{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--ac),#818cf8,var(--ac));background-size:200% 100%;animation:lov-slide 1.2s linear infinite;border-radius:12px 12px 0 0}
 @keyframes lov-slide{0%{background-position:200% 0}100%{background-position:-200% 0}}
-@keyframes lov-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes lov-in{from{opacity:0}to{opacity:1}}
 @media(max-width:900px){.sidebar{width:56px}.sidebar-logo h1,.sidebar-logo span,.ni span:not(.nic){display:none}.ni{justify-content:center;padding:12px}.mn{padding:16px}.sg{grid-template-columns:1fr 1fr}.rr{flex-direction:column;align-items:flex-start;gap:4px;padding:10px 16px}.rr-s{width:auto}.rr-l{width:auto}.rr-i{width:100%}.filter-bar{flex-direction:column;gap:8px}.filter-search{width:100%}.wk-header{flex-direction:column;align-items:flex-start;gap:4px}.sidebar-upload-btn span:last-child{display:none}.sidebar-upload-btn{justify-content:center;padding:10px}}
 </style>
 </head>
@@ -107,7 +108,7 @@ function LoadingOverlayProvider({children}){
   const show=useCallback(m=>setMsg(m||"Working..."),[]);
   const hide=useCallback(()=>setMsg(null),[]);
   return <LoadingCtx.Provider value={{show,hide}}>
-    {msg&&<div className="loading-overlay"><div className="loading-overlay-bar"/><div className="loading-overlay-msg"><div className="spinner" style={{width:14,height:14,borderWidth:2}}/>{msg}</div></div>}
+    {msg&&<div className="loading-overlay"><div className="loading-overlay-card"><div className="loading-overlay-bar"/><div className="spinner"/>{msg}</div></div>}
     {children}
   </LoadingCtx.Provider>;
 }

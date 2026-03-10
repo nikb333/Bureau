@@ -1138,7 +1138,8 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
         allocs.forEach(a=>{if(!allocations[a.orderId])allocations[a.orderId]={deposit:0,release:0};allocations[a.orderId][a.lineType||"release"]+=a.amount;});
         const lineTypes=[...new Set(allocs.map(a=>a.lineType).filter(Boolean))];
         const paymentType=lineTypes.length>1?"Mixed":lineTypes[0]==="deposit"?"Deposit":"Release";
-        await apiPost("/api/payments",{orderIds,allocations,bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:paymentType,notes:d.notes||"",docName:file?.name});
+        const pmtResult=await apiPost("/api/payments",{orderIds,allocations,bankAccount:bm[d.bank_account_hint]||"us-chase",sourceEntity:d.source_entity||"US",amount:+(d.amount)||0,currency:d.currency||"USD",date:d.payment_date||new Date().toISOString().slice(0,10),type:paymentType,notes:d.notes||"",docName:file?.name});
+        if(pmtResult?.warnings?.length>0){alert("Payment saved but some order updates failed:\n"+pmtResult.warnings.map(w=>`${w.oid}: ${w.error}`).join("\n"));}
         if(file&&allocs.length>0){
           const uploadMeta={docType:"remittance",docDate:d.payment_date||new Date().toISOString().slice(0,10),entity:d.source_entity||"",bankLabel:d.bank_account_hint||""};
           const uniqueRefs=[...new Set(allocs.map(a=>a.ref))];

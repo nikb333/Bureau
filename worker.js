@@ -963,11 +963,13 @@ export default {
         if (body.orderIds?.length) {
           const allocs = body.allocations || {};
           const payDate = body.date || new Date().toISOString().slice(0, 10);
+          // Read all orders ONCE — avoids stale reads between sequential writes
+          const allOrders = await getAllOrders(token, sheetId);
+          const failedUpdates = [];
           for (const oid of body.orderIds) {
             try {
-              const orders = await getAllOrders(token, sheetId);
-              const order = orders.find(o => o.id === oid);
-              if (!order) continue;
+              const order = allOrders.find(o => o.id === oid);
+              if (!order) { failedUpdates.push({ oid, error: "Order not found" }); continue; }
 
               // Support per-stage allocations {deposit: X, release: Y} or legacy flat amount
               const allocEntry = allocs[oid];
@@ -1005,10 +1007,16 @@ export default {
                   updates.releaseStatus = "partial";
                 }
               }
-              await updateOrder(token, sheetId, oid, updates);
+              if (Object.keys(updates).length > 0) {
+                await updateOrder(token, sheetId, oid, updates);
+              }
             } catch (e) {
               console.error(`Failed to update order ${oid}:`, e.message);
+              failedUpdates.push({ oid, error: e.message });
             }
+          }
+          if (failedUpdates.length > 0) {
+            return json({ success: true, payment: created, warnings: failedUpdates, message: `Payment saved but ${failedUpdates.length} order update(s) failed` }, 201, origin);
           }
         }
         return json({ success: true, payment: created }, 201, origin);

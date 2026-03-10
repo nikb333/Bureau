@@ -175,7 +175,7 @@ async function apiGet(path) { const r = await fetch(API+path); if(!r.ok) throw n
 async function apiPost(path, body) { const r = await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
 async function apiPatch(path, body) { const r = await fetch(API+path,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
 async function apiDelete(path) { const r = await fetch(API+path,{method:"DELETE"}); if(!r.ok) throw new Error(await parseApiError(r,"API request failed")); return r.json(); }
-async function apiUploadFile(file, poRef, meta) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); if(meta){if(meta.docType)f.append("docType",meta.docType);if(meta.docDate)f.append("docDate",meta.docDate);if(meta.entity)f.append("entity",meta.entity);if(meta.bankLabel)f.append("bankLabel",meta.bankLabel);} const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error(await parseApiError(r,"Upload failed")); return r.json(); }
+async function apiUploadFile(file, poRef, meta) { const f = new FormData(); f.append("file",file); f.append("poRef",poRef); if(meta){if(meta.docType)f.append("docType",meta.docType);if(meta.docDate)f.append("docDate",meta.docDate);if(meta.entity)f.append("entity",meta.entity);if(meta.bankLabel)f.append("bankLabel",meta.bankLabel);if(meta.folderId)f.append("folderId",meta.folderId);} const r = await fetch(API+"/api/drive/upload",{method:"POST",body:f}); if(!r.ok) throw new Error(await parseApiError(r,"Upload failed")); return r.json(); }
 
 // Fuzzy match existing payment for remittance upload
 function fuzzyMatchPayment(remittanceData, payments) {
@@ -1146,8 +1146,10 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
         if(pmtResult?.warnings?.length>0){alert("Payment saved but some order updates failed:\n"+pmtResult.warnings.map(w=>`${w.oid}: ${w.error}`).join("\n"));}
         if(file&&allocs.length>0){
           const uploadMeta={docType:"remittance",docDate:d.payment_date||new Date().toISOString().slice(0,10),entity:d.source_entity||"",bankLabel:d.bank_account_hint||""};
-          const uniqueRefs=[...new Set(allocs.map(a=>a.ref))];
-          await Promise.all(uniqueRefs.map(ref=>apiUploadFile(file,ref,uploadMeta).catch(e=>({error:true,ref,msg:e.message}))));
+          // Upload remittance to each unique PO folder — use driveFolderId from order data when available
+          const seen=new Set();const uploads=[];
+          allocs.forEach(a=>{if(!seen.has(a.orderId)){seen.add(a.orderId);const o=orders.find(x=>x.id===a.orderId);uploads.push({ref:a.ref,folderId:o?.driveFolderId||""});}});
+          await Promise.all(uploads.map(u=>apiUploadFile(file,u.ref,{...uploadMeta,folderId:u.folderId}).catch(e=>({error:true,ref:u.ref,msg:e.message}))));
         }
         // Store remittance details for email confirmation
         const poRefs=[...new Set(allocs.map(a=>a.ref))];
@@ -1287,7 +1289,7 @@ function RowUploadModal({order,onClose,onRefresh}){
     try{
       // Always upload file to this PO's Drive folder
       if(file&&order.ref){
-        const uploadMeta={docType:docType||"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||""};
+        const uploadMeta={docType:docType||"document",docDate:new Date().toISOString().slice(0,10),entity:order.region||"",folderId:order.driveFolderId||""};
         if(docType==="remittance"){uploadMeta.entity=payForm.source||order.region||"";uploadMeta.bankLabel=payForm.bank||"";}
         await apiUploadFile(file,order.ref,uploadMeta);
       }

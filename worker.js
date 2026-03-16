@@ -155,7 +155,7 @@ async function ensureSheetStructure(token, sheetId) {
 // --- Orders CRUD ---
 
 async function getAllOrders(token, sheetId) {
-  const rows = await readRange(token, sheetId, "Orders", "A2:V5000");
+  const rows = await readRange(token, sheetId, "Orders", "A2:W5000");
   return rows.filter(r => r[0]).map(rowToOrder);
 }
 
@@ -172,19 +172,19 @@ async function addOrder(token, sheetId, order) {
     relAmt, order.releaseStatus || "unpaid", order.releaseDue || "", order.releasePaid || "",
     order.notes || "", order.driveFolderId || "", order.created || now, now,
     order.poDate || "",
-    0, 0,
+    0, 0, order.priority ? "1" : "",
   ];
   await appendRows(token, sheetId, "Orders", [row]);
   return rowToOrder(row);
 }
 
 async function updateOrder(token, sheetId, orderId, updates) {
-  const rows = await readRange(token, sheetId, "Orders", "A2:V5000");
+  const rows = await readRange(token, sheetId, "Orders", "A2:W5000");
   const idx = rows.findIndex(r => r[0] === orderId);
   if (idx === -1) throw new Error(`Order not found: ${orderId}`);
   const row = rows[idx];
-  // Ensure columns U/V exist (backfill for pre-existing rows)
-  while (row.length < 22) row.push("");
+  // Ensure columns U/V/W exist (backfill for pre-existing rows)
+  while (row.length < 23) row.push("");
   const sheetRow = idx + 2;
 
   if (updates.region !== undefined) row[1] = updates.region;
@@ -207,9 +207,10 @@ async function updateOrder(token, sheetId, orderId, updates) {
   if (updates.poDate !== undefined) row[19] = updates.poDate;
   if (updates.depositPaidAmt !== undefined) row[20] = updates.depositPaidAmt;
   if (updates.releasePaidAmt !== undefined) row[21] = updates.releasePaidAmt;
+  if (updates.priority !== undefined) row[22] = updates.priority ? "1" : "";
   row[18] = new Date().toISOString().slice(0, 19);
 
-  await writeRange(token, sheetId, "Orders", `A${sheetRow}:V${sheetRow}`, [row]);
+  await writeRange(token, sheetId, "Orders", `A${sheetRow}:W${sheetRow}`, [row]);
   return rowToOrder(row);
 }
 
@@ -253,6 +254,7 @@ function rowToOrder(row) {
     created: row[17] || "", updated: row[18] || "",
     poDate: row[19] || "",
     depositPaidAmt: num(row[20]), releasePaidAmt: num(row[21]),
+    priority: !!(row[22]),
   };
 }
 

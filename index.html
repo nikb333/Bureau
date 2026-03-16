@@ -1578,6 +1578,85 @@ function OrdersTab({orders,payments,onRefresh}){
     <div className="ph"><div><h2>Purchase Orders</h2><p className="ps">{unpaidItems.length} unpaid · {paidItems.length} paid (from {baseFiltered.length} filtered line items)</p></div><div style={{display:"flex",gap:8,alignItems:"center"}}>{selected.size>0&&<><button className="btn btn-ghost" onClick={copySelected} title="Copy selected rows">📋 Copy ({selected.size})</button><button className="btn btn-ghost" onClick={()=>setSelected(new Set())}>Clear</button></>}<button className="btn btn-ghost" onClick={exportCsv} title="Export to CSV">⬇ CSV{selected.size>0?` (${selected.size})`:""}</button><button className="btn btn-primary" onClick={()=>setShowUp(!showUp)}>{showUp?"Hide":"📎 Upload POs"}</button></div></div>
     {showUp&&<div className="us"><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={onRefresh}/></div>}
     <div className="sg"><div className="sc"><div className="sl">Line Items Unpaid</div><div className="sv">{unpaidItems.length}</div></div><div className="sc"><div className="sl">Total Unpaid</div><div className="sv mono amber">{usd(totalUnpaid)}</div></div><div className="sc"><div className="sl">Due Next 14 Days</div><div className="sv mono red">{usd(due14)}</div></div></div>
+
+    {/* Selection summary bar */}
+    {(()=>{
+      if(selected.size===0)return null;
+      const allLineItems=[...unpaidSorted,...paidSorted];
+      const selItems=allLineItems.filter(i=>selected.has(i.lineKey));
+      if(!selItems.length)return null;
+      // Group by supplier
+      const bySupplier={};
+      selItems.forEach(i=>{
+        const s=i.supplier||"Unknown";
+        if(!bySupplier[s])bySupplier[s]={totalUSD:0,outstandingUSD:0,byCurrency:{}};
+        const outUSD=toUSD(i.lineOutstanding||0,i.currency);
+        const amtUSD=toUSD(i.lineAmount||0,i.currency);
+        bySupplier[s].totalUSD+=amtUSD;
+        bySupplier[s].outstandingUSD+=outUSD;
+        const cur=i.currency||"USD";
+        if(!bySupplier[s].byCurrency[cur])bySupplier[s].byCurrency[cur]={outstanding:0,total:0};
+        bySupplier[s].byCurrency[cur].outstanding+=(i.lineOutstanding||0);
+        bySupplier[s].byCurrency[cur].total+=(i.lineAmount||0);
+      });
+      const grandOutstandingUSD=selItems.reduce((s,i)=>s+toUSD(i.lineOutstanding||0,i.currency),0);
+      const grandTotalUSD=selItems.reduce((s,i)=>s+toUSD(i.lineAmount||0,i.currency),0);
+      // Grand totals by currency
+      const grandByCurrency={};
+      selItems.forEach(i=>{const c=i.currency||"USD";if(!grandByCurrency[c])grandByCurrency[c]={outstanding:0,total:0};grandByCurrency[c].outstanding+=(i.lineOutstanding||0);grandByCurrency[c].total+=(i.lineAmount||0);});
+      const suppliers=Object.keys(bySupplier).sort();
+      const copyBreakdown=()=>{
+        let txt=`SELECTED POs: ${selItems.length} line items\n\n`;
+        suppliers.forEach(s=>{
+          const d=bySupplier[s];
+          txt+=`${s}:\n`;
+          Object.entries(d.byCurrency).forEach(([cur,v])=>{
+            if(v.outstanding>0)txt+=`  Outstanding: ${v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${cur}\n`;
+          });
+          txt+=`  Outstanding (USD): ${usd(d.outstandingUSD)}\n\n`;
+        });
+        txt+=`TOTAL OUTSTANDING: ${usd(grandOutstandingUSD)}\n`;
+        Object.entries(grandByCurrency).forEach(([cur,v])=>{
+          if(v.outstanding>0)txt+=`  ${v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${cur}\n`;
+        });
+        navigator.clipboard.writeText(txt);
+      };
+      return <div style={{marginBottom:12,padding:"14px 16px",background:"linear-gradient(135deg,#eef2ff,#e0e7ff)",border:"2px solid var(--ac)",borderRadius:"var(--r2)",position:"sticky",top:0,zIndex:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:13,fontWeight:800,color:"var(--ac)"}}>{selItems.length} Selected</span>
+            <span style={{fontSize:12,color:"var(--tx2)"}}>across {suppliers.length} supplier{suppliers.length>1?"s":""}</span>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={copyBreakdown} className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px"}}>Copy Breakdown</button>
+            <button onClick={()=>setSelected(new Set())} className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px"}}>Clear Selection</button>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {suppliers.map(s=>{const d=bySupplier[s];const curs=Object.entries(d.byCurrency).filter(([,v])=>v.outstanding>0);return <div key={s} style={{flex:"1 1 200px",minWidth:180,padding:"10px 12px",background:"var(--wh)",borderRadius:"var(--r)",border:"1px solid var(--bd)"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--tx)",marginBottom:6}}>{s}</div>
+            {curs.map(([cur,v])=><div key={cur} style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+              <span style={{fontSize:11,color:"var(--tx3)"}}>Outstanding ({cur})</span>
+              <span className="mono" style={{fontSize:12,fontWeight:700,color:"var(--am)"}}>{v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>)}
+            <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid var(--bd)",paddingTop:4,marginTop:4}}>
+              <span style={{fontSize:11,color:"var(--tx3)"}}>USD Equiv</span>
+              <span className="mono" style={{fontSize:12,fontWeight:700,color:"var(--ac)"}}>{usd(d.outstandingUSD)}</span>
+            </div>
+          </div>;})}
+        </div>
+        <div style={{marginTop:10,paddingTop:10,borderTop:"2px solid var(--ac)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>TOTAL OUTSTANDING</span>
+          <div style={{textAlign:"right"}}>
+            <span className="mono" style={{fontSize:16,fontWeight:800,color:"var(--ac)"}}>{usd(grandOutstandingUSD)}</span>
+            {Object.keys(grandByCurrency).length>1&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>
+              {Object.entries(grandByCurrency).filter(([,v])=>v.outstanding>0).map(([cur,v])=><span key={cur} className="mono" style={{marginLeft:10}}>{v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} {cur}</span>)}
+            </div>}
+          </div>
+        </div>
+      </div>;
+    })()}
+
     <div className="filter-bar">
       <input placeholder="Search PO, invoice..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
       <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["1M","3M","6M","1Y"]} value={fAge} onChange={setFAge} allLabel="All"/></div>

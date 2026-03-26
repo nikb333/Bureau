@@ -3,7 +3,7 @@
 // Routes /api/* requests to the Bureau Worker.
 // ================================================================
 
-const WORKER_ORIGIN = "api.ops.nikbureau.com";
+const WORKER_ORIGIN = "https://api.ops.nikbureau.com";
 
 export async function onRequest(context) {
   const { request, env } = context;

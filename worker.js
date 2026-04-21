@@ -172,7 +172,7 @@ async function addOrder(token, sheetId, order) {
     relAmt, order.releaseStatus || "unpaid", order.releaseDue || "", order.releasePaid || "",
     order.notes || "", order.driveFolderId || "", order.created || now, now,
     order.poDate || "",
-    0, 0, order.priority ? "1" : "",
+    0, 0, normalizePriority(order.priority),
   ];
   await appendRows(token, sheetId, "Orders", [row]);
   return rowToOrder(row);
@@ -207,7 +207,7 @@ async function updateOrder(token, sheetId, orderId, updates) {
   if (updates.poDate !== undefined) row[19] = updates.poDate;
   if (updates.depositPaidAmt !== undefined) row[20] = updates.depositPaidAmt;
   if (updates.releasePaidAmt !== undefined) row[21] = updates.releasePaidAmt;
-  if (updates.priority !== undefined) row[22] = updates.priority ? "1" : "";
+  if (updates.priority !== undefined) row[22] = normalizePriority(updates.priority);
   row[18] = new Date().toISOString().slice(0, 19);
 
   await writeRange(token, sheetId, "Orders", `A${sheetRow}:W${sheetRow}`, [row]);
@@ -254,8 +254,22 @@ function rowToOrder(row) {
     created: row[17] || "", updated: row[18] || "",
     poDate: row[19] || "",
     depositPaidAmt: num(row[20]), releasePaidAmt: num(row[21]),
-    priority: !!(row[22]),
+    priority: readPriority(row[22]),
   };
+}
+
+function normalizePriority(p) {
+  if (p === true || p === "1" || p === "both") return "both";
+  if (p === "deposit") return "deposit";
+  if (p === "release") return "release";
+  return "";
+}
+
+function readPriority(raw) {
+  if (raw === "1" || raw === true || raw === "both") return "both";
+  if (raw === "deposit") return "deposit";
+  if (raw === "release") return "release";
+  return "";
 }
 
 // --- Payments CRUD ---

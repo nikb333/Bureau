@@ -1760,7 +1760,13 @@ function OrdersTab({orders,payments,onRefresh}){
       try{
         const results=await Promise.all(foldersToScan.map(async f=>{
           const r=await apiGet(`/api/drive/files/${f.folderId}`);
-          return(r.files||[]).filter(file=>{const n=(file.name||"").toLowerCase();return n.includes("commercial invoice")||n.includes("invoice");}).map(file=>({...file,poRef:f.ref}));
+          const files=r.files||[];
+          // Prefer "commercial invoice" files; fall back to any file with "invoice" (but not "remittance")
+          let invoices=files.filter(file=>(file.name||"").toLowerCase().includes("commercial invoice"));
+          if(!invoices.length)invoices=files.filter(file=>{const n=(file.name||"").toLowerCase();return n.includes("invoice")&&!n.includes("remittance");});
+          // Take only the most recent invoice per folder (last in list = newest)
+          if(invoices.length>1)invoices=[invoices[invoices.length-1]];
+          return invoices.map(file=>({...file,poRef:f.ref}));
         }));
         const invoiceFiles=results.flat();
         if(!invoiceFiles.length){alert("No invoice files found in selected PO folders");loading.hide();return;}

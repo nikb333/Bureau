@@ -865,7 +865,7 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   const[search,setSearch]=useState("");
   const[selected,setSelected]=useState(new Map()); // lineId → {amount, isSplit}
-  const[splitOpen,setSplitOpen]=useState(null); // lineId currently editing split
+  const[splitOpen,setSplitOpen]=useState(null);
   const[splitAmt,setSplitAmt]=useState("");
   const[adjustment,setAdjustment]=useState(0);
   const[adjNote,setAdjNote]=useState("");
@@ -879,11 +879,11 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
   },[selected,adjustment]);
   const remaining=payAmt-allocTotal;
   const allocPct=payAmt>0?Math.min(allocTotal/payAmt,1):0;
+  const hasMismatch=selected.size>0&&Math.abs(remaining)>0.01;
+  const isMatched=selected.size>0&&Math.abs(remaining)<0.01;
 
-  // Only unpaid lines
   const lines=useMemo(()=>expandOrdersToLines(orders,false),[orders]);
 
-  // Filter and sort lines
   const filteredLines=useMemo(()=>{
     let result=lines;
     if(regionFilter!=="All")result=result.filter(l=>l.region===regionFilter);
@@ -892,7 +892,6 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
       const scored=fuzzyMatchLines(search,result);
       const ids=new Set(scored.map(s=>s.lineId));
       result=result.filter(l=>ids.has(l.lineId));
-      // Sort by match score
       const scoreMap=new Map(scored.map(s=>[s.lineId,s.score]));
       result.sort((a,b)=>(scoreMap.get(b.lineId)||0)-(scoreMap.get(a.lineId)||0));
     }else{
@@ -901,24 +900,10 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
     return result;
   },[lines,search,regionFilter,supplierFilter]);
 
-  // Auto-select matching lines on load
+  // Auto-fill search only (no auto-select) — user must check items manually
   useEffect(()=>{
     const autoRef=ed?.po_references?.[0]||ed?.reference||"";
-    if(autoRef&&lines.length>0&&selected.size===0){
-      setSearch(autoRef);
-      // Auto-check matching lines after a tick so filteredLines updates
-      setTimeout(()=>{
-        const scored=fuzzyMatchLines(autoRef,lines);
-        if(scored.length>0){
-          const newSel=new Map();
-          scored.filter(s=>s.score>=75&&!s.isPaid).forEach(s=>{
-            const out=s.outstanding||s.lineAmtUSD;
-            if(out>0.01)newSel.set(s.lineId,{amount:out,isSplit:false,line:s});
-          });
-          if(newSel.size>0)setSelected(newSel);
-        }
-      },50);
-    }
+    if(autoRef&&lines.length>0&&selected.size===0){setSearch(autoRef);}
   },[lines]);
 
   const toggleLine=(l)=>{
@@ -966,8 +951,7 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
   const handleConfirm=()=>{
     if(selected.size===0){alert("Select at least one transaction to allocate");return;}
     if(Math.abs(remaining)>0.01){
-      const hint=remaining>0?"Select more transactions, split amounts, or add an adjustment.":"Uncheck transactions, reduce split amounts, or add a negative adjustment.";
-      alert(`Payment amount must match exactly.\nRemaining: ${usd(remaining)}\n\n${hint}`);
+      alert(`Payment amount must match exactly.\nDifference: ${usd(Math.abs(remaining))}\n\nUse Split to partially pay an invoice, or add an Adjustment for rounding/fees.`);
       return;
     }
     const allocs=[];
@@ -1001,12 +985,10 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
     });
   };
   const allChecked=filteredLines.length>0&&filteredLines.every(l=>selected.has(l.lineId));
-
-  // Unique suppliers in current lines for filter
   const availableSuppliers=useMemo(()=>[...new Set(lines.map(l=>l.supplier).filter(Boolean))].sort(),[lines]);
 
   return <div className="rc">
-    <div className="rc-h"><div><div className="rc-t">Match Transactions</div><div className="rc-f">{fileName}</div></div><div style={{display:"flex",alignItems:"center",gap:12}}><div style={{textAlign:"right"}}><div style={{fontSize:11,color:"var(--tx3)",fontWeight:600}}>Payment Amount</div><div className="mono" style={{fontSize:20,fontWeight:800,color:"var(--tx)"}}>{usd(payAmt)}</div></div></div></div>
+    <div className="rc-h"><div><div className="rc-t">Match Transactions</div><div className="rc-f">{fileName}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:11,color:"var(--tx3)",fontWeight:600}}>Payment Amount</div><div className="mono" style={{fontSize:22,fontWeight:800,color:"var(--tx)"}}>{usd(payAmt)}</div></div></div>
 
     <div className="rs-t">Payment Details</div>
     <div style={{padding:"0 22px 16px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1017,6 +999,7 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
     </div>
 
     {/* Transaction list */}
+    <div className="rs-t">Select Invoices to Match</div>
     <div style={{padding:"0 22px"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
         <input className="ri" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter by PO ref, invoice, supplier..." style={{flex:1,fontSize:13}}/>
@@ -1024,18 +1007,16 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
         <select value={supplierFilter} onChange={e=>setSupplierFilter(e.target.value)} className="ri" style={{width:110,fontSize:12}}><option value="All">All</option>{availableSuppliers.map(s=><option key={s}>{s}</option>)}</select>
       </div>
 
-      <div style={{border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden",marginBottom:12}}>
-        {/* Header row */}
+      <div style={{border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden",marginBottom:16}}>
+        {/* Header */}
         <div style={{display:"flex",alignItems:"center",padding:"8px 14px",background:"var(--s2)",borderBottom:"1px solid var(--bd)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",color:"var(--tx3)"}}>
           <div style={{width:32,flexShrink:0,textAlign:"center"}}><input type="checkbox" checked={allChecked} onChange={()=>allChecked?deselectAll():selectAll()} style={{cursor:"pointer",accentColor:"var(--ac)"}}/></div>
-          <div style={{flex:2,minWidth:0}}>Transaction</div>
-          <div style={{width:70,textAlign:"center"}}>Type</div>
-          <div style={{width:100,textAlign:"right",paddingRight:8}}>Outstanding</div>
-          <div style={{width:100,textAlign:"right",paddingRight:8}}>Allocating</div>
-          <div style={{width:70,textAlign:"center"}}>Action</div>
+          <div style={{flex:1,minWidth:0}}>Transaction</div>
+          <div style={{width:110,textAlign:"right"}}>Outstanding</div>
+          <div style={{width:130,textAlign:"right"}}>Allocating</div>
         </div>
 
-        {/* Transaction rows */}
+        {/* Rows */}
         <div style={{maxHeight:320,overflowY:"auto"}}>
           {filteredLines.map(l=>{
             const out=l.outstanding||l.lineAmtUSD;
@@ -1043,65 +1024,99 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
             const sel=selected.get(l.lineId);
             const isSplitRow=splitOpen===l.lineId;
             return <div key={l.lineId}>
-              <div onClick={()=>toggleLine(l)} style={{display:"flex",alignItems:"center",padding:"9px 14px",borderBottom:"1px solid var(--s3)",cursor:"pointer",background:isChecked?"#f0f7ff":"var(--wh)",transition:"background .12s"}}>
+              <div onClick={()=>toggleLine(l)} style={{display:"flex",alignItems:"center",padding:"10px 14px",borderBottom:"1px solid var(--s3)",cursor:"pointer",background:isChecked?"#f0f7ff":"var(--wh)",transition:"background .12s"}}>
                 <div style={{width:32,flexShrink:0,textAlign:"center"}}><input type="checkbox" checked={isChecked} onChange={()=>{}} style={{cursor:"pointer",accentColor:"var(--ac)",pointerEvents:"none"}}/></div>
-                <div style={{flex:2,minWidth:0,display:"flex",alignItems:"center",gap:8}}>
+                <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8}}>
                   <RegionBadge region={l.region}/>
                   <span style={{fontWeight:600,fontSize:13}}>{l.ref}</span>
+                  <LineBadge type={l.lineType}/>
                   <span style={{fontSize:11,color:"var(--tx3)"}}>{l.inv}</span>
                   <span style={{fontSize:11,color:"var(--tx3)"}}>· {l.supplier}</span>
                 </div>
-                <div style={{width:70,textAlign:"center"}}><LineBadge type={l.lineType}/></div>
-                <div className="mono" style={{width:100,textAlign:"right",paddingRight:8,fontWeight:600,fontSize:13,color:"var(--am)"}}>{usd(out)}</div>
-                <div className="mono" style={{width:100,textAlign:"right",paddingRight:8,fontWeight:700,fontSize:13,color:isChecked?"var(--gn)":"var(--tx3)"}}>{isChecked?usd(sel.amount):"—"}</div>
-                <div style={{width:70,textAlign:"center"}} onClick={e=>e.stopPropagation()}>
-                  {isChecked&&<button onClick={e=>{e.stopPropagation();if(isSplitRow){setSplitOpen(null);setSplitAmt("");}else{setSplitOpen(l.lineId);setSplitAmt(sel.isSplit?String(sel.amount):"");}}} style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:4,border:`1px solid ${sel.isSplit?"var(--am)":"var(--ac)"}`,background:sel.isSplit?"var(--amb)":isSplitRow?"var(--acl)":"transparent",color:sel.isSplit?"var(--am)":"var(--ac)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{sel.isSplit?"Split":"Split"}</button>}
+                <div className="mono" style={{width:110,textAlign:"right",fontWeight:600,fontSize:13,color:"var(--am)"}}>{usd(out)}</div>
+                <div style={{width:130,textAlign:"right",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6}} onClick={e=>e.stopPropagation()}>
+                  {isChecked&&<>
+                    <span className="mono" style={{fontWeight:700,fontSize:13,color:sel.isSplit?"var(--am)":"var(--gn)"}}>{usd(sel.amount)}</span>
+                    <button onClick={e=>{e.stopPropagation();if(isSplitRow){setSplitOpen(null);setSplitAmt("");}else{setSplitOpen(l.lineId);setSplitAmt(sel.isSplit?String(sel.amount):"");}}} style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,border:`1px solid ${sel.isSplit?"var(--am)":"var(--bd)"}`,background:sel.isSplit?"var(--amb)":isSplitRow?"var(--acl)":"transparent",color:sel.isSplit?"var(--am)":"var(--tx3)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",lineHeight:"16px"}}>{sel.isSplit?"Split":"Split"}</button>
+                  </>}
+                  {!isChecked&&<span className="mono" style={{fontSize:13,color:"var(--tx3)"}}>—</span>}
                 </div>
               </div>
               {/* Split inline editor */}
               {isSplitRow&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px 8px 46px",background:"#f8faff",borderBottom:"1px solid var(--s3)"}}>
-                <span style={{fontSize:11,color:"var(--tx3)",fontWeight:600}}>Partial amount:</span>
-                <input type="number" step="0.01" value={splitAmt} onChange={e=>setSplitAmt(e.target.value)} className="ri" style={{width:140,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:13,padding:"6px 10px"}} placeholder="0.00" autoFocus onKeyDown={e=>{if(e.key==="Enter")applySplit(l.lineId);if(e.key==="Escape"){setSplitOpen(null);setSplitAmt("");}}}/>
+                <span style={{fontSize:12,color:"var(--tx2)",fontWeight:600}}>Pay:</span>
+                <input type="number" step="0.01" value={splitAmt} onChange={e=>setSplitAmt(e.target.value)} className="ri" style={{width:130,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:13,padding:"6px 10px"}} placeholder="0.00" autoFocus onKeyDown={e=>{if(e.key==="Enter")applySplit(l.lineId);if(e.key==="Escape"){setSplitOpen(null);setSplitAmt("");}}}/>
                 <span style={{fontSize:11,color:"var(--tx3)"}}>of {usd(out)}</span>
                 <button onClick={()=>applySplit(l.lineId)} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:5,border:"none",background:"var(--ac)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} disabled={!(+(splitAmt)>0)}>Apply</button>
                 {sel.isSplit&&<button onClick={()=>{resetToFull(l.lineId);setSplitOpen(null);setSplitAmt("");}} style={{fontSize:11,fontWeight:600,padding:"5px 10px",borderRadius:5,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Full</button>}
-                <button onClick={()=>{setSplitOpen(null);setSplitAmt("");}} style={{fontSize:11,color:"var(--tx3)",background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}}>Cancel</button>
+                <button onClick={()=>{setSplitOpen(null);setSplitAmt("");}} style={{fontSize:18,color:"var(--tx3)",background:"none",border:"none",cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
               </div>}
             </div>;
           })}
           {filteredLines.length===0&&<div style={{textAlign:"center",padding:24,color:"var(--tx3)",fontSize:13}}>{search.trim()?"No matching unpaid transactions":"No unpaid transactions"}</div>}
         </div>
       </div>
-
-      {/* Adjustment row */}
-      {!showAdj&&<div style={{marginBottom:16}}>
-        <button onClick={()=>setShowAdj(true)} style={{fontSize:12,fontWeight:600,color:"var(--ac)",background:"none",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"'DM Sans',sans-serif"}}>+ Add adjustment (rounding, fees, etc.)</button>
-      </div>}
-      {showAdj&&<div style={{padding:"12px 16px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:"var(--r)",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:12,fontWeight:600,color:"var(--tx2)",whiteSpace:"nowrap"}}>Adjustment:</span>
-        <input type="number" step="0.01" value={adjustment||""} onChange={e=>setAdjustment(+(e.target.value)||0)} className="ri" style={{width:120,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:13,padding:"6px 10px"}} placeholder="±0.00"/>
-        <input value={adjNote} onChange={e=>setAdjNote(e.target.value)} className="ri" style={{flex:1,fontSize:12,padding:"6px 10px"}} placeholder="Note (e.g. rounding difference, bank fee)"/>
-        <button onClick={()=>{setShowAdj(false);setAdjustment(0);setAdjNote("");}} style={{fontSize:11,color:"var(--rd)",background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}}>Remove</button>
-      </div>}
     </div>
 
+    {/* Adjustment panel — prominent when there's a mismatch */}
+    {(showAdj||hasMismatch)&&<div style={{margin:"0 22px 16px",padding:"16px 20px",background:showAdj?"var(--wh)":"linear-gradient(135deg,#fef2f2,#fff5f5)",border:`2px solid ${showAdj&&adjustment!==0?"var(--am)":hasMismatch&&!showAdj?"var(--rd)":"var(--bd)"}`,borderRadius:"var(--r2)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:showAdj?12:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>{hasMismatch&&!showAdj?"⚠":"±"}</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:hasMismatch&&!showAdj?"var(--rd)":"var(--tx)"}}>
+              {hasMismatch&&!showAdj?`Difference of ${usd(Math.abs(remaining))}`:"Adjustment"}
+            </div>
+            <div style={{fontSize:11,color:"var(--tx3)"}}>
+              {hasMismatch&&!showAdj?(remaining>0?"Payment exceeds selected invoices":"Selected invoices exceed payment"):"For rounding differences, bank fees, or FX adjustments"}
+            </div>
+          </div>
+        </div>
+        {!showAdj&&hasMismatch&&<button onClick={()=>{setShowAdj(true);setAdjustment(remaining>0?remaining:-Math.abs(remaining));setAdjNote("Rounding adjustment");}} style={{fontSize:12,fontWeight:700,padding:"8px 16px",borderRadius:6,border:"none",background:"var(--am)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>Add Adjustment of {usd(remaining)}</button>}
+        {showAdj&&<button onClick={()=>{setShowAdj(false);setAdjustment(0);setAdjNote("");}} style={{fontSize:11,fontWeight:600,padding:"5px 10px",borderRadius:5,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Remove</button>}
+      </div>
+      {showAdj&&<div style={{display:"grid",gridTemplateColumns:"140px 1fr",gap:10,alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:4}}>Amount</div>
+          <input type="number" step="0.01" value={adjustment||""} onChange={e=>setAdjustment(+(e.target.value)||0)} className="ri" style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:14,padding:"8px 12px"}} placeholder="±0.00"/>
+        </div>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:4}}>Reason</div>
+          <input value={adjNote} onChange={e=>setAdjNote(e.target.value)} className="ri" style={{fontSize:13,padding:"8px 12px"}} placeholder="e.g. rounding difference, bank fee, FX variance"/>
+        </div>
+      </div>}
+    </div>}
+
+    {/* Add adjustment link when no mismatch and not showing */}
+    {!showAdj&&!hasMismatch&&<div style={{padding:"0 22px 12px"}}>
+      <button onClick={()=>setShowAdj(true)} style={{fontSize:12,fontWeight:600,color:"var(--ac)",background:"none",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"'DM Sans',sans-serif"}}>+ Add adjustment</button>
+    </div>}
+
     {/* Footer summary */}
-    <div style={{margin:"0 22px 16px",padding:"14px 18px",background:Math.abs(remaining)<0.01?"linear-gradient(135deg,#ecfdf5,#d1fae5)":remaining<0?"linear-gradient(135deg,#fef2f2,#fee)":"linear-gradient(135deg,#eff6ff,#dbeafe)",border:`1px solid ${Math.abs(remaining)<0.01?"var(--gnbd)":remaining<0?"var(--rd)":"var(--ac)"}`,borderRadius:"var(--r2)"}}>
+    <div style={{margin:"0 22px 16px",padding:"14px 18px",background:isMatched?"linear-gradient(135deg,#ecfdf5,#d1fae5)":hasMismatch?"linear-gradient(135deg,#fef2f2,#fee)":"linear-gradient(135deg,#f8fafc,#f1f5f9)",border:`1px solid ${isMatched?"var(--gnbd)":hasMismatch?"var(--rdbd)":"var(--bd)"}`,borderRadius:"var(--r2)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
         <div style={{fontSize:12,color:"var(--tx2)"}}>
-          <span style={{fontWeight:600}}>{selected.size} transaction{selected.size!==1?"s":""}</span>
+          <span style={{fontWeight:600}}>{selected.size} transaction{selected.size!==1?"s":""} selected</span>
           {adjustment!==0&&<span style={{marginLeft:8,color:"var(--am)",fontWeight:600}}>+ adjustment {usd(adjustment)}</span>}
         </div>
         <div style={{textAlign:"right"}}>
-          <div style={{fontSize:11,color:"var(--tx3)",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>{Math.abs(remaining)<0.01?"Matched":"Remaining"}</div>
-          <div className="mono" style={{fontSize:18,fontWeight:800,color:Math.abs(remaining)<0.01?"var(--gn)":remaining<0?"var(--rd)":"var(--ac)"}}>{Math.abs(remaining)<0.01?"Matched":usd(remaining)}</div>
+          {isMatched&&<div style={{fontSize:14,fontWeight:800,color:"var(--gn)"}}>Matched</div>}
+          {hasMismatch&&<div><div style={{fontSize:10,fontWeight:700,color:"var(--rd)",textTransform:"uppercase",letterSpacing:".04em"}}>Difference</div><div className="mono" style={{fontSize:18,fontWeight:800,color:"var(--rd)"}}>{usd(Math.abs(remaining))}</div></div>}
+          {selected.size===0&&<div style={{fontSize:12,color:"var(--tx3)"}}>No transactions selected</div>}
         </div>
       </div>
-      <div style={{height:6,background:"rgba(0,0,0,.08)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(allocPct*100,100)}%`,background:Math.abs(remaining)<0.01?"var(--gn)":"var(--ac)",borderRadius:3,transition:"width .3s ease"}}/></div>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx3)",marginTop:4}}><span>Allocated: <span className="mono" style={{fontWeight:700}}>{usd(allocTotal)}</span></span><span>Payment: <span className="mono" style={{fontWeight:700}}>{usd(payAmt)}</span></span></div>
+      <div style={{height:6,background:"rgba(0,0,0,.06)",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(allocPct*100,100)}%`,background:isMatched?"var(--gn)":hasMismatch?"var(--rd)":"var(--bd)",borderRadius:3,transition:"width .3s ease"}}/></div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--tx3)",marginTop:4}}>
+        <span>Allocated: <span className="mono" style={{fontWeight:700}}>{usd(allocTotal)}</span></span>
+        <span>Payment: <span className="mono" style={{fontWeight:700}}>{usd(payAmt)}</span></span>
+      </div>
     </div>
 
-    <div className="rc-act"><button className="btn btn-ghost" onClick={onCancel}>{cancelLabel||"Cancel"}</button><button className="btn btn-primary" onClick={handleConfirm} disabled={selected.size===0||Math.abs(remaining)>0.01}>Confirm & Save</button></div>
+    <div className="rc-act">
+      <button className="btn btn-ghost" onClick={onCancel}>{cancelLabel||"Cancel"}</button>
+      {hasMismatch&&<button className="btn" onClick={()=>{setShowAdj(true);setAdjustment(remaining);setAdjNote("Rounding adjustment");}} style={{background:"var(--am)",color:"#fff",fontSize:12}}>Add {usd(remaining)} Adjustment</button>}
+      <button className="btn btn-primary" onClick={handleConfirm} disabled={selected.size===0||Math.abs(remaining)>0.01}>Confirm & Save</button>
+    </div>
   </div>;
 }
 

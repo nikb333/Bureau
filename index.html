@@ -1721,8 +1721,9 @@ function OrdersTab({orders,payments,onRefresh}){
     const bySupplier={};
     selItems.forEach(i=>{
       const s=i.supplier||"Unknown";
-      if(!bySupplier[s])bySupplier[s]={outstandingUSD:0,byCurrency:{}};
+      if(!bySupplier[s])bySupplier[s]={outstandingUSD:0,byCurrency:{},lines:[]};
       bySupplier[s].outstandingUSD+=toUSD(i.lineOutstanding||0,i.currency);
+      bySupplier[s].lines.push(i);
       const cur=i.currency||"USD";
       if(!bySupplier[s].byCurrency[cur])bySupplier[s].byCurrency[cur]={outstanding:0};
       bySupplier[s].byCurrency[cur].outstanding+=(i.lineOutstanding||0);
@@ -1731,11 +1732,11 @@ function OrdersTab({orders,payments,onRefresh}){
     const grandByCurrency={};
     selItems.forEach(i=>{const c=i.currency||"USD";if(!grandByCurrency[c])grandByCurrency[c]={outstanding:0};grandByCurrency[c].outstanding+=(i.lineOutstanding||0);});
     const suppliers=Object.keys(bySupplier).sort();
+    const fmtAmt=(v,cur)=>Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+" "+cur;
     const copyBreakdown=()=>{
       let txt=`SELECTED POs: ${selItems.length} line items\n\n`;
-      suppliers.forEach(s=>{const d=bySupplier[s];txt+=`${s}:\n`;Object.entries(d.byCurrency).forEach(([cur,v])=>{if(v.outstanding>0)txt+=`  Outstanding: ${v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${cur}\n`;});txt+=`  Outstanding (USD): ${usd(d.outstandingUSD)}\n\n`;});
-      txt+=`TOTAL OUTSTANDING: ${usd(grandOutstandingUSD)}\n`;
-      Object.entries(grandByCurrency).forEach(([cur,v])=>{if(v.outstanding>0)txt+=`  ${v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${cur}\n`;});
+      suppliers.forEach(s=>{const d=bySupplier[s];txt+=`${s}\n`;txt+="PO Ref\tType\tCurrency\tOutstanding\tUSD Equiv\n";d.lines.forEach(l=>{txt+=`${l.ref}\t${l.lineType}\t${l.currency}\t${fmtAmt(l.lineOutstanding,l.currency)}\t${usd(toUSD(l.lineOutstanding||0,l.currency))}\n`;});txt+=`Subtotal\t\t\t\t${usd(d.outstandingUSD)}\n\n`;});
+      txt+=`TOTAL OUTSTANDING\t\t\t\t${usd(grandOutstandingUSD)}\n`;
       navigator.clipboard.writeText(txt);
     };
     return <div style={{marginTop:10,padding:"14px 16px",background:"linear-gradient(135deg,#eef2ff,#e0e7ff)",border:"2px solid var(--ac)",borderRadius:"var(--r2)"}}>
@@ -1749,25 +1750,35 @@ function OrdersTab({orders,payments,onRefresh}){
           <button onClick={()=>setSelected(new Set())} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"var(--tx3)",padding:"2px 6px",lineHeight:1,fontWeight:700}} title="Close and deselect all">✕</button>
         </div>
       </div>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        {suppliers.map(s=>{const d=bySupplier[s];const curs=Object.entries(d.byCurrency).filter(([,v])=>v.outstanding>0);return <div key={s} style={{flex:"1 1 200px",minWidth:180,padding:"10px 12px",background:"var(--wh)",borderRadius:"var(--r)",border:"1px solid var(--bd)"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"var(--tx)",marginBottom:6}}>{s}</div>
-          {curs.map(([cur,v])=><div key={cur} style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-            <span style={{fontSize:11,color:"var(--tx3)"}}>Outstanding ({cur})</span>
-            <span className="mono" style={{fontSize:12,fontWeight:700,color:"var(--am)"}}>{v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-          </div>)}
-          <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid var(--bd)",paddingTop:4,marginTop:4}}>
-            <span style={{fontSize:11,color:"var(--tx3)"}}>USD Equiv</span>
-            <span className="mono" style={{fontSize:12,fontWeight:700,color:"var(--ac)"}}>{usd(d.outstandingUSD)}</span>
-          </div>
-        </div>;})}
-      </div>
-      <div style={{marginTop:10,paddingTop:10,borderTop:"2px solid var(--ac)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      {suppliers.map(s=>{const d=bySupplier[s];return <div key={s} style={{marginBottom:10,background:"var(--wh)",borderRadius:"var(--r)",border:"1px solid var(--bd)",overflow:"hidden"}}>
+        <div style={{padding:"8px 12px",background:"var(--s2)",borderBottom:"1px solid var(--bd)",fontSize:12,fontWeight:700,color:"var(--tx)"}}>{s}</div>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,userSelect:"text"}}>
+          <thead><tr style={{background:"var(--s2)"}}>
+            <th style={{padding:"4px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em"}}>PO Ref</th>
+            <th style={{padding:"4px 8px",textAlign:"left",fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em"}}>Type</th>
+            <th style={{padding:"4px 8px",textAlign:"right",fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em"}}>Outstanding</th>
+            <th style={{padding:"4px 12px",textAlign:"right",fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em"}}>USD</th>
+          </tr></thead>
+          <tbody>
+            {d.lines.map(l=><tr key={l.lineKey} style={{borderBottom:"1px solid var(--s3)"}}>
+              <td style={{padding:"5px 12px",fontWeight:600}}>{l.ref}</td>
+              <td style={{padding:"5px 8px"}}><span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,background:l.lineType==="Deposit"?"rgba(59,130,246,.12)":"rgba(16,185,129,.12)",color:l.lineType==="Deposit"?"#2563eb":"#059669"}}>{l.lineType}</span></td>
+              <td className="mono" style={{padding:"5px 8px",textAlign:"right",color:"var(--am)",fontWeight:600}}>{fmtAmt(l.lineOutstanding,l.currency)}</td>
+              <td className="mono" style={{padding:"5px 12px",textAlign:"right",fontWeight:700}}>{usd(toUSD(l.lineOutstanding||0,l.currency))}</td>
+            </tr>)}
+            <tr style={{borderTop:"2px solid var(--ac)"}}>
+              <td colSpan={3} style={{padding:"6px 12px",fontWeight:700,fontSize:11,color:"var(--tx2)"}}>Subtotal</td>
+              <td className="mono" style={{padding:"6px 12px",textAlign:"right",fontWeight:800,color:"var(--ac)"}}>{usd(d.outstandingUSD)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>;})}
+      <div style={{marginTop:4,paddingTop:10,borderTop:"2px solid var(--ac)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <span style={{fontSize:12,fontWeight:700,color:"var(--tx)"}}>TOTAL OUTSTANDING</span>
         <div style={{textAlign:"right"}}>
           <span className="mono" style={{fontSize:16,fontWeight:800,color:"var(--ac)"}}>{usd(grandOutstandingUSD)}</span>
           {Object.keys(grandByCurrency).length>1&&<div style={{fontSize:11,color:"var(--tx3)",marginTop:2}}>
-            {Object.entries(grandByCurrency).filter(([,v])=>v.outstanding>0).map(([cur,v])=><span key={cur} className="mono" style={{marginLeft:10}}>{v.outstanding.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} {cur}</span>)}
+            {Object.entries(grandByCurrency).filter(([,v])=>v.outstanding>0).map(([cur,v])=><span key={cur} className="mono" style={{marginLeft:10}}>{fmtAmt(v.outstanding,cur)}</span>)}
           </div>}
         </div>
       </div>

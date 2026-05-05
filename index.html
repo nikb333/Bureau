@@ -861,7 +861,7 @@ function LineMatchCard({selectedLine,payAmt,remaining,partialAmt,setPartialAmt,o
 
 // ── Allocated card with mini progress bar ──
 // RemittanceAllocationUI — Xero-style transaction matching
-function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,fileName,orders,payments}){
+function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,fileName,orders,payments,preSelectedLines}){
   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
   const[search,setSearch]=useState("");
   const[selected,setSelected]=useState(new Map()); // lineId → {amount, isSplit}
@@ -900,8 +900,20 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
     return result;
   },[lines,search,regionFilter,supplierFilter]);
 
-  // Auto-fill search only (no auto-select) — user must check items manually
+  // Pre-select lines passed from bulk selection, or auto-fill search from parsed doc
   useEffect(()=>{
+    if(preSelectedLines&&preSelectedLines.length>0&&lines.length>0&&selected.size===0){
+      const newSel=new Map();
+      preSelectedLines.forEach(ps=>{
+        const match=lines.find(l=>l.id===ps.id&&l.lineType===ps.lineType.toLowerCase());
+        if(match){
+          const out=match.outstanding||match.lineAmtUSD;
+          if(out>0.01)newSel.set(match.lineId,{amount:out,isSplit:false,line:match});
+        }
+      });
+      if(newSel.size>0)setSelected(newSel);
+      return;
+    }
     const autoRef=ed?.po_references?.[0]||ed?.reference||"";
     if(autoRef&&lines.length>0&&selected.size===0){setSearch(autoRef);}
   },[lines]);
@@ -1210,7 +1222,7 @@ function ReviewScreen({parsed,ed,setEd,docType,onChangeDocType,onConfirm,onCance
 }
 
 // InlineUploader — supports multi-file upload with parallel parsing + sequential review
-function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,onRefresh}){
+function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,onRefresh,preSelectedLines}){
   const loading=useLoading();
   // Queue: [{file, status:"parsing"|"ready"|"reviewing"|"saving"|"done"|"error", parsed, ed, docType, error}]
   const[queue,setQueue]=useState([]);
@@ -1417,7 +1429,7 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
       </div>)}
     </div>:null;
 
-    if(item.docType==="remittance")return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<RemittanceAllocationUI parsed={item.parsed} ed={item.ed} setEd={setActiveEd} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} cancelLabel={totalCount>1?"Skip this":"Cancel"} fileName={item.file?.name} orders={orders} payments={payments}/></>;
+    if(item.docType==="remittance")return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<RemittanceAllocationUI parsed={item.parsed} ed={item.ed} setEd={setActiveEd} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} cancelLabel={totalCount>1?"Skip this":"Cancel"} fileName={item.file?.name} orders={orders} payments={payments} preSelectedLines={preSelectedLines}/></>;
     return <>{multiHeader}{item.error&&<div className="err">{item.error}</div>}<ReviewScreen parsed={item.parsed} ed={item.ed} setEd={setActiveEd} docType={item.docType} onChangeDocType={setActiveDocType} onConfirm={confirmCurrent} onCancel={totalCount>1?skipCurrent:reset} cancelLabel={totalCount>1?"Skip this":"Cancel"} fileName={item.file?.name} orders={orders} payments={payments}/></>;
   }
   return null;
@@ -1426,10 +1438,12 @@ function InlineUploader({orders,setOrders,payments,setPayments,defaultDocType,on
 // RowUploadModal — per-PO upload: doc goes to Drive, optional payment record
 function RowUploadModal({order,onClose,onRefresh}){
   const loadingOv=useLoading();
-  const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState("document");
+  const hasUnpaid=order.depositStatus!=="paid"||order.releaseStatus!=="paid";
+  const[st,setSt]=useState("pick");const[file,setFile]=useState(null);const[docType,setDocType]=useState(hasUnpaid?"remittance":"document");
   const[parsing,setParsing]=useState(false);const[saving,setSaving]=useState(false);const[error,setError]=useState(null);
-  const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:"Deposit",source:order.region||"",bank:"",reference:""});
-  const[createPayment,setCreatePayment]=useState(!(order.depositStatus==="paid"&&order.releaseStatus==="paid"));
+  const defaultType=order.lineType==="Deposit"?(order.depositStatus!=="paid"?"Deposit":"Release"):(order.releaseStatus!=="paid"?"Release":"Deposit");
+  const[payForm,setPayForm]=useState({amount:0,currency:order.currency||"USD",date:"",type:defaultType,source:order.region||"",bank:"",reference:""});
+  const[createPayment,setCreatePayment]=useState(true);
   const fRef=useRef();
   const pf=(k,v)=>setPayForm(p=>({...p,[k]:v}));
   const selectedLinePaid=payForm.type==="Release"?order.releaseStatus==="paid":payForm.type==="Full Amount"?(order.depositStatus==="paid"&&order.releaseStatus==="paid"):order.depositStatus==="paid";
@@ -1636,7 +1650,7 @@ function OrdersTab({orders,payments,onRefresh}){
   const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fAge,setFAge]=useState("6M");const[fPrio,setFPrio]=useState("all");
   const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);const[showPaid,setShowPaid]=useState(false);
   const[editOrder,setEditOrder]=useState(null);const[uploadFor,setUploadFor]=useState(null);
-  const[selected,setSelected]=useState(new Set());
+  const[selected,setSelected]=useState(new Set());const[bulkRemittance,setBulkRemittance]=useState(null);
   const[priorityOverrides,setPriorityOverrides]=useState({});
   const dragRef=useRef({active:false,mode:"select"});
   const lastClickRef=useRef(null);
@@ -1746,6 +1760,7 @@ function OrdersTab({orders,payments,onRefresh}){
           <span style={{fontSize:12,color:"var(--tx2)"}}>across {suppliers.length} supplier{suppliers.length>1?"s":""}</span>
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={()=>{const items=selItems.filter(i=>i.lineOutstanding>0.01);if(!items.length){alert("No unpaid items selected");return;}setBulkRemittance(items);}} className="btn btn-primary" style={{fontSize:11,padding:"4px 12px"}}>🏦 Upload Remittance</button>
           <button onClick={copyBreakdown} className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px"}}>Copy Breakdown</button>
           <button onClick={()=>setSelected(new Set())} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"var(--tx3)",padding:"2px 6px",lineHeight:1,fontWeight:700}} title="Close and deselect all">✕</button>
         </div>
@@ -1826,6 +1841,13 @@ function OrdersTab({orders,payments,onRefresh}){
       </button>
       {showPaid&&<div style={{padding:"10px 10px 12px",background:"var(--wh)"}}><div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("priority")} style={{width:32,padding:"4px 6px",textAlign:"center",fontSize:10}}>Priority{si("priority")}</th><th className="srt" onClick={()=>ts("region")}>Region{si("region")}</th><th className="srt" onClick={()=>ts("ref")}>Ref{si("ref")}</th><th className="srt" onClick={()=>ts("inv")}>Invoice{si("inv")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th className="srt" onClick={()=>ts("currency")}>Currency{si("currency")}</th><th className="srt" onClick={()=>ts("amount")}>Inv Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("usdEquiv")}>USD Equiv{si("usdEquiv")}</th><th className="srt" onClick={()=>ts("paidAmt")}>Paid{si("paidAmt")}</th><th className="srt" onClick={()=>ts("outstanding")}>Outstanding{si("outstanding")}</th><th className="srt" onClick={()=>ts("due")}>Due Date{si("due")}</th><th className="srt" onClick={()=>ts("paidDate")}>Paid Date{si("paidDate")}</th><th className="srt" onClick={()=>ts("poDate")}>PO Date{si("poDate")}</th><th className="srt" onClick={()=>ts("status")}>Status{si("status")}</th><th className="srt" onClick={()=>ts("supplier")}>Supplier / Notes{si("supplier")}</th><th>Drive</th><th>Docs</th><th>Actions</th></tr></thead>{renderRows(paidSorted)}</table></div></div>{renderSelectionSummary(paidSorted)}</div>}
     </div>
+
+    {bulkRemittance&&<div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={()=>setBulkRemittance(null)}>
+      <div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:900,width:"95%",maxHeight:"90vh",overflowY:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
+        <div style={{padding:"14px 22px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fafbfc"}}><div><span style={{fontWeight:700,fontSize:15}}>Upload Remittance for {bulkRemittance.length} Selected POs</span><div style={{fontSize:12,color:"var(--tx3)",marginTop:2}}>{[...new Set(bulkRemittance.map(i=>i.ref))].join(", ")}</div></div><button onClick={()=>setBulkRemittance(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"var(--tx3)"}}>✕</button></div>
+        <div style={{padding:16}}><InlineUploader orders={orders} payments={payments} defaultDocType="remittance" onRefresh={async()=>{await onRefresh();setBulkRemittance(null);setSelected(new Set());}} preSelectedLines={bulkRemittance}/></div>
+      </div>
+    </div>}
 
     {editOrder&&<EditOrderModal order={editOrder} payments={payments} onSave={async()=>{await onRefresh();setEditOrder(null);}} onRefresh={onRefresh} onClose={()=>setEditOrder(null)}/>}
     {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}

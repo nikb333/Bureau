@@ -1753,6 +1753,25 @@ function OrdersTab({orders,payments,onRefresh}){
       txt+=`TOTAL OUTSTANDING\t\t\t\t${usd(grandOutstandingUSD)}\n`;
       navigator.clipboard.writeText(txt);
     };
+    const downloadInvoices=async()=>{
+      const foldersToScan=[...new Map(selItems.filter(i=>i.driveFolderId).map(i=>[i.driveFolderId,{folderId:i.driveFolderId,ref:i.ref}])).values()];
+      if(!foldersToScan.length){alert("No Drive folders linked to selected POs");return;}
+      loading.show("Finding invoices...");
+      try{
+        const results=await Promise.all(foldersToScan.map(async f=>{
+          const r=await apiGet(`/api/drive/files/${f.folderId}`);
+          return(r.files||[]).filter(file=>{const n=(file.name||"").toLowerCase();return n.includes("commercial invoice")||n.includes("invoice");}).map(file=>({...file,poRef:f.ref}));
+        }));
+        const invoiceFiles=results.flat();
+        if(!invoiceFiles.length){alert("No invoice files found in selected PO folders");loading.hide();return;}
+        loading.hide();
+        for(let i=0;i<invoiceFiles.length;i++){
+          const url=`${API}/api/drive/download/${invoiceFiles[i].id}`;
+          const a=document.createElement("a");a.href=url;a.download=invoiceFiles[i].name||"invoice";a.target="_blank";document.body.appendChild(a);a.click();document.body.removeChild(a);
+          if(i<invoiceFiles.length-1)await new Promise(r=>setTimeout(r,500));
+        }
+      }catch(e){alert("Failed to fetch invoices: "+e.message);loading.hide();}
+    };
     return <div style={{marginTop:10,padding:"14px 16px",background:"linear-gradient(135deg,#eef2ff,#e0e7ff)",border:"2px solid var(--ac)",borderRadius:"var(--r2)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -1761,6 +1780,7 @@ function OrdersTab({orders,payments,onRefresh}){
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <button onClick={()=>{const items=selItems.filter(i=>i.lineOutstanding>0.01);if(!items.length){alert("No unpaid items selected");return;}setBulkRemittance(items);}} className="btn btn-primary" style={{fontSize:11,padding:"4px 12px"}}>🏦 Upload Remittance</button>
+          <button onClick={downloadInvoices} className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px"}}>⬇ Download Invoices</button>
           <button onClick={copyBreakdown} className="btn btn-ghost" style={{fontSize:11,padding:"3px 10px"}}>Copy Breakdown</button>
           <button onClick={()=>setSelected(new Set())} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"var(--tx3)",padding:"2px 6px",lineHeight:1,fontWeight:700}} title="Close and deselect all">✕</button>
         </div>

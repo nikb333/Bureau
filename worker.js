@@ -1137,6 +1137,28 @@ export default {
         return json({ files }, 200, origin);
       }
 
+      // GET /api/drive/download/:fileId — proxy file download through service account
+      if (path.startsWith("/api/drive/download/") && method === "GET") {
+        const fileId = path.replace("/api/drive/download/", "");
+        if (!fileId) return err("Missing fileId", 400, origin);
+        const token = await getToken(env);
+        const metaRes = await fetch(`${DRIVE_BASE}/files/${fileId}?fields=name,mimeType&supportsAllDrives=true`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!metaRes.ok) return err("File not found", 404, origin);
+        const meta = await metaRes.json();
+        const dlRes = await fetch(`${DRIVE_BASE}/files/${fileId}?alt=media&supportsAllDrives=true`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!dlRes.ok) return err("Download failed", 500, origin);
+        const headers = new Headers({
+          "Content-Type": meta.mimeType || "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${(meta.name || "file").replace(/"/g, "'")}"`,
+          "Access-Control-Allow-Origin": origin || "*",
+        });
+        return new Response(dlRes.body, { status: 200, headers });
+      }
+
       // POST /api/drive/upload
       if (path === "/api/drive/upload" && method === "POST") {
         const token = await getToken(env);

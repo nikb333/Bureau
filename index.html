@@ -137,6 +137,7 @@ const TABS = [
   { id: "orders", label: "Purchase Orders", icon: "📦" },
   { id: "payments", label: "Payments", icon: "💳" },
   { id: "clearing", label: "Intercompany", icon: "🔄" },
+  { id: "bookkeeper", label: "Bookkeeper", icon: "📋" },
   { id: "forecast", label: "Cash Forecast", icon: "📊" },
 ];
 const usd = v => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1910,14 +1911,14 @@ function PaymentsTab({orders,payments,onRefresh}){
 
 function IntercompanyTab({orders,payments}){
   const[sort,setSort]=useState({key:"date",dir:"desc"});
-  const[viewMode,setViewMode]=useState("payments"); // "payments" | "balances"
+  const[viewMode,setViewMode]=useState("payments");
   const[filterEntity,setFilterEntity]=useState("all");
   const[filterPeriod,setFilterPeriod]=useState("6M");
+  const[search,setSearch]=useState("");
   const ts=key=>setSort(s=>({key,dir:s.key===key&&s.dir==="asc"?"desc":"asc"}));
   const si=key=>sort.key===key?(sort.dir==="asc"?" ↑":" ↓"):"";
   const go=id=>orders.find(o=>o.id===id);
 
-  // Build IC payment records — each payment that crosses entities
   const icPayments=useMemo(()=>{
     const result=[];
     payments.forEach(p=>{
@@ -1926,28 +1927,32 @@ function IntercompanyTab({orders,payments}){
       (p.orderIds||[]).forEach(oid=>{
         const o=go(oid);if(!o)return;
         const rawAmt=(p.allocations||{})[oid];
-        const amt=(typeof rawAmt==="object"&&rawAmt!==null)?((+rawAmt.deposit||0)+(+rawAmt.release||0)):(+rawAmt||0);
+        const depAmt=(typeof rawAmt==="object"&&rawAmt!==null)?(+rawAmt.deposit||0):0;
+        const relAmt=(typeof rawAmt==="object"&&rawAmt!==null)?(+rawAmt.release||0):0;
+        const amt=(depAmt+relAmt)||(+rawAmt||0);
+        const lineType=depAmt>0&&relAmt>0?"Full Amount":depAmt>0?"Deposit":"Release";
         const dest=o.region||"??";
         if(p.sourceEntity!==dest)hasIC=true;
-        splits.push({orderId:oid,ref:o.ref,supplier:o.supplier,dest,amount:amt,currency:p.currency||"USD",amtUSD:toUSD(amt,p.currency||"USD"),isIC:p.sourceEntity!==dest});
+        splits.push({orderId:oid,ref:o.ref,supplier:o.supplier,dest,amount:amt,currency:p.currency||"USD",amtUSD:toUSD(amt,p.currency||"USD"),isIC:p.sourceEntity!==dest,lineType});
       });
       if(!hasIC)return;
       const totalUSD=splits.reduce((s,sp)=>s+sp.amtUSD,0);
       const icSplits=splits.filter(s=>s.isIC);
       const icTotal=icSplits.reduce((s,sp)=>s+sp.amtUSD,0);
-      // Group splits by destination entity
       const byDest={};
       icSplits.forEach(sp=>{
         if(!byDest[sp.dest])byDest[sp.dest]={entity:sp.dest,amount:0,orders:[]};
         byDest[sp.dest].amount+=sp.amtUSD;
         byDest[sp.dest].orders.push(sp);
       });
-      result.push({id:p.id,date:p.date,source:p.sourceEntity,bank:p.bankAccount,totalAmount:p.amount,currency:p.currency||"USD",totalUSD,icTotal,splits:icSplits,byDest:Object.values(byDest),docName:p.docName,allSplits:splits});
+      const lineTypes=[...new Set(icSplits.map(s=>s.lineType))];
+      const pmtType=lineTypes.length>1?"Mixed":lineTypes[0]||p.type||"—";
+      const bankLabel=BANKS.find(b=>b.id===p.bankAccount)?.label||p.bankAccount||"";
+      result.push({id:p.id,date:p.date,source:p.sourceEntity,bank:p.bankAccount,bankLabel,totalAmount:p.amount,currency:p.currency||"USD",totalUSD,icTotal,splits:icSplits,byDest:Object.values(byDest),docName:p.docName,allSplits:splits,pmtType});
     });
     return result;
   },[payments,orders]);
 
-  // Filter
   const filtered=useMemo(()=>{
     let result=icPayments;
     if(filterEntity!=="all")result=result.filter(p=>p.source===filterEntity||p.splits.some(s=>s.dest===filterEntity));
@@ -1956,22 +1961,29 @@ function IntercompanyTab({orders,payments}){
       const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);
       result=result.filter(p=>!p.date||new Date(p.date)>=cutoff);
     }
+    if(search.trim()){
+      const q=search.toLowerCase();
+      result=result.filter(p=>(p.docName||"").toLowerCase().includes(q)||p.source.toLowerCase().includes(q)||p.bankLabel.toLowerCase().includes(q)||(p.pmtType||"").toLowerCase().includes(q)||p.splits.some(s=>(s.ref||"").toLowerCase().includes(q)||(s.supplier||"").toLowerCase().includes(q)||s.dest.toLowerCase().includes(q)));
+    }
     return result;
-  },[icPayments,filterEntity,filterPeriod]);
+  },[icPayments,filterEntity,filterPeriod,search]);
 
-  // Sort
   const sorted=useMemo(()=>{
     const d=sort.dir==="asc"?1:-1;
     return[...filtered].sort((a,b)=>{
       if(sort.key==="date")return((a.date||"")>(b.date||"")?1:-1)*d;
       if(sort.key==="source")return((a.source||"")>(b.source||"")?1:-1)*d;
+      if(sort.key==="bank")return((a.bankLabel||"")>(b.bankLabel||"")?1:-1)*d;
       if(sort.key==="amount")return(a.totalUSD-b.totalUSD)*d;
       if(sort.key==="ic")return(a.icTotal-b.icTotal)*d;
+      if(sort.key==="type")return((a.pmtType||"")>(b.pmtType||"")?1:-1)*d;
+      if(sort.key==="refs")return(([...new Set(a.splits.map(s=>s.ref))].join(","))>([...new Set(b.splits.map(s=>s.ref))].join(","))?1:-1)*d;
+      if(sort.key==="doc")return((a.docName||"")>(b.docName||"")?1:-1)*d;
+      if(sort.key==="dest"){const ad=a.byDest.map(x=>x.entity).sort().join(",");const bd=b.byDest.map(x=>x.entity).sort().join(",");return(ad>bd?1:-1)*d;}
       return 0;
     });
   },[filtered,sort]);
 
-  // Net balances by entity pair
   const netBalances=useMemo(()=>{
     const bals={};
     icPayments.forEach(p=>{
@@ -1985,20 +1997,18 @@ function IntercompanyTab({orders,payments}){
     return Object.values(bals);
   },[icPayments]);
 
-  // Summary stats
   const totalICValue=filtered.reduce((s,p)=>s+p.icTotal,0);
   const totalPayments=filtered.length;
   const[expanded,setExpanded]=useState({});
   const toggle=id=>setExpanded(p=>({...p,[id]:!p[id]}));
 
-  // Copy reconciliation report
   const copyReport=()=>{
     let txt="INTERCOMPANY RECONCILIATION REPORT\n";
     txt+="Generated: "+new Date().toLocaleDateString("en-GB")+"\n\n";
-    txt+="Date\tPayment Source\tBank\tTotal Amount\tIC Amount (USD)\tDestination\tPO Refs\n";
+    txt+="Date\tPayment Source\tBank\tType\tTotal Amount\tIC Amount (USD)\tDestination\tPO Refs\n";
     sorted.forEach(p=>{
       p.byDest.forEach(d=>{
-        txt+=`${p.date}\t${p.source}\t${p.bank||""}\t${p.currency} ${Number(p.totalAmount).toLocaleString(undefined,{minimumFractionDigits:2})}\t${usd(d.amount)}\t${d.entity}\t${d.orders.map(o=>o.ref).join(", ")}\n`;
+        txt+=`${p.date}\t${p.source}\t${p.bankLabel}\t${p.pmtType}\t${p.currency} ${Number(p.totalAmount).toLocaleString(undefined,{minimumFractionDigits:2})}\t${usd(d.amount)}\t${d.entity}\t${d.orders.map(o=>o.ref).join(", ")}\n`;
       });
     });
     txt+="\nNET BALANCES\n";
@@ -2019,6 +2029,7 @@ function IntercompanyTab({orders,payments}){
     </div>
 
     <div className="filter-bar">
+      <input placeholder="Search PO, supplier, doc..." value={search} onChange={e=>setSearch(e.target.value)} className="filter-search"/>
       <div className="filter-section"><span className="filter-label">View</span><div className="btn-group"><button className={`bg-btn ${viewMode==="payments"?"bg-act":""}`} onClick={()=>setViewMode("payments")}>Payments</button><button className={`bg-btn ${viewMode==="balances"?"bg-act":""}`} onClick={()=>setViewMode("balances")}>Net Balances</button></div></div>
       <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["1M","3M","6M","1Y"]} value={filterPeriod} onChange={setFilterPeriod} allLabel="All"/></div>
       <div className="filter-section"><span className="filter-label">Entity</span><BtnGroup options={ENTITIES} value={filterEntity} onChange={setFilterEntity} allLabel="All"/></div>
@@ -2029,33 +2040,37 @@ function IntercompanyTab({orders,payments}){
         <th style={{width:28}}></th>
         <th className="srt" onClick={()=>ts("date")}>Payment Date{si("date")}</th>
         <th className="srt" onClick={()=>ts("source")}>Paid By{si("source")}</th>
-        <th>Bank</th>
-        <th>Payment Amount</th>
-        <th className="srt" onClick={()=>ts("ic")}>IC Amount (USD){si("ic")}</th>
-        <th>Paid On Behalf Of</th>
-        <th>PO Refs</th>
-        <th>Document</th>
+        <th className="srt" onClick={()=>ts("bank")}>Bank{si("bank")}</th>
+        <th className="srt" onClick={()=>ts("type")}>Type{si("type")}</th>
+        <th className="srt" onClick={()=>ts("amount")}>Payment Amount{si("amount")}</th>
+        <th className="srt usd-col" onClick={()=>ts("ic")}>IC Amount (USD){si("ic")}</th>
+        <th className="srt" onClick={()=>ts("dest")}>Paid On Behalf Of{si("dest")}</th>
+        <th className="srt" onClick={()=>ts("refs")}>PO Refs{si("refs")}</th>
+        <th className="srt" onClick={()=>ts("doc")}>Document{si("doc")}</th>
       </tr></thead>
       <tbody>
         {sorted.map(p=>{
           const isOpen=expanded[p.id];
+          const typeBadge=p.pmtType==="Deposit"?"badge-amber":p.pmtType==="Release"?"badge-green":p.pmtType==="Full Amount"?"badge-blue":"badge-grey";
           return <React.Fragment key={p.id}>
             <tr onClick={()=>toggle(p.id)} style={{cursor:"pointer",background:isOpen?"var(--acl)":"inherit"}}>
               <td style={{textAlign:"center",fontSize:11,color:"var(--tx3)"}}>{isOpen?"▾":"▸"}</td>
               <td>{fmtDate(p.date)}</td>
               <td><RegionBadge region={p.source}/></td>
-              <td style={{fontSize:11,color:"var(--tx2)"}}>{BANKS.find(b=>b.id===p.bank)?.label||p.bank||"—"}</td>
+              <td style={{fontSize:11,color:"var(--tx2)"}}>{p.bankLabel||"—"}</td>
+              <td><span className={`badge ${typeBadge}`} style={{fontSize:10}}>{p.pmtType}</span></td>
               <td className="mono" style={{fontWeight:600}}>{p.currency} {Number(p.totalAmount).toLocaleString(undefined,{minimumFractionDigits:2})}</td>
               <td className="mono usd-col" style={{fontWeight:700}}>{usd(p.icTotal)}</td>
               <td>{p.byDest.map(d=><span key={d.entity} style={{marginRight:8}}><RegionBadge region={d.entity}/> <span className="mono" style={{fontSize:11,fontWeight:600}}>{usd(d.amount)}</span></span>)}</td>
               <td className="cb" style={{fontSize:11}}>{[...new Set(p.splits.map(s=>s.ref))].join(", ")}</td>
               <td style={{fontSize:11,color:"var(--tx3)",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{p.docName||"—"}</td>
             </tr>
-            {isOpen&&<tr><td colSpan={9} style={{padding:0,background:"var(--s2)"}}>
+            {isOpen&&<tr><td colSpan={10} style={{padding:0,background:"var(--s2)"}}>
               <table style={{width:"100%",fontSize:11}}>
                 <thead><tr style={{background:"var(--s3)"}}>
                   <th style={{padding:"4px 12px"}}>PO Ref</th>
                   <th style={{padding:"4px 8px"}}>Supplier</th>
+                  <th style={{padding:"4px 8px"}}>Type</th>
                   <th style={{padding:"4px 8px"}}>Source</th>
                   <th style={{padding:"4px 8px"}}>Destination</th>
                   <th style={{padding:"4px 8px"}}>IC</th>
@@ -2064,6 +2079,7 @@ function IntercompanyTab({orders,payments}){
                 <tbody>{p.allSplits.map((sp,j)=><tr key={j} style={{background:sp.isIC?"rgba(37,99,235,.04)":"inherit"}}>
                   <td style={{padding:"5px 12px",fontWeight:600}}>{sp.ref}</td>
                   <td style={{padding:"5px 8px",color:"var(--tx2)"}}>{sp.supplier}</td>
+                  <td style={{padding:"5px 8px"}}><span className={`badge ${sp.lineType==="Deposit"?"badge-amber":sp.lineType==="Release"?"badge-green":"badge-blue"}`} style={{fontSize:9}}>{sp.lineType}</span></td>
                   <td style={{padding:"5px 8px"}}><RegionBadge region={p.source}/></td>
                   <td style={{padding:"5px 8px"}}><RegionBadge region={sp.dest}/></td>
                   <td style={{padding:"5px 8px"}}>{sp.isIC?<span className="badge badge-amber" style={{fontSize:9}}>IC</span>:<span style={{color:"var(--tx3)"}}>—</span>}</td>
@@ -2073,7 +2089,7 @@ function IntercompanyTab({orders,payments}){
             </td></tr>}
           </React.Fragment>;
         })}
-        {!sorted.length&&<tr><td colSpan={9} className="ec">No intercompany payments in this period</td></tr>}
+        {!sorted.length&&<tr><td colSpan={10} className="ec">No intercompany payments in this period</td></tr>}
       </tbody>
     </table></div></div>}
 
@@ -2081,13 +2097,12 @@ function IntercompanyTab({orders,payments}){
       {netBalances.length===0&&<div className="es">No intercompany balances</div>}
       {netBalances.map(b=>{
         const payer=b.flow>=0?b.e1:b.e2;const payee=b.flow>=0?b.e2:b.e1;
-        // Get all transactions for this pair
         const pairTxns=[];
         filtered.forEach(p=>{
           p.splits.filter(sp=>{
             const k=[p.source,sp.dest].sort().join("-");
             return k===[b.e1,b.e2].sort().join("-");
-          }).forEach(sp=>{pairTxns.push({date:p.date,ref:sp.ref,supplier:sp.supplier,from:p.source,to:sp.dest,amount:sp.amtUSD,docName:p.docName});});
+          }).forEach(sp=>{pairTxns.push({date:p.date,ref:sp.ref,supplier:sp.supplier,from:p.source,to:sp.dest,amount:sp.amtUSD,lineType:sp.lineType,docName:p.docName});});
         });
         pairTxns.sort((a,c)=>(c.date||"").localeCompare(a.date||""));
         const pairTotal=pairTxns.reduce((s,t)=>s+(t.from===payer?t.amount:-t.amount),0);
@@ -2100,24 +2115,157 @@ function IntercompanyTab({orders,payments}){
           </div>
           <table style={{fontSize:12}}>
             <thead><tr>
-              <th>Date</th><th>PO</th><th>Supplier</th><th>From</th><th>To</th><th style={{textAlign:"right"}}>Amount (USD)</th><th>Document</th>
+              <th>Date</th><th>PO</th><th>Supplier</th><th>Type</th><th>From</th><th>To</th><th style={{textAlign:"right"}}>Amount (USD)</th><th>Document</th>
             </tr></thead>
             <tbody>
               {pairTxns.map((t,j)=><tr key={j}>
                 <td>{fmtDate(t.date)}</td>
                 <td className="cb">{t.ref}</td>
                 <td style={{color:"var(--tx2)"}}>{t.supplier}</td>
+                <td><span className={`badge ${t.lineType==="Deposit"?"badge-amber":t.lineType==="Release"?"badge-green":"badge-blue"}`} style={{fontSize:9}}>{t.lineType}</span></td>
                 <td><RegionBadge region={t.from}/></td>
                 <td><RegionBadge region={t.to}/></td>
                 <td className="mono" style={{textAlign:"right",fontWeight:600}}>{usd(t.amount)}</td>
                 <td style={{fontSize:11,color:"var(--tx3)",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{t.docName||"—"}</td>
               </tr>)}
-              <tr style={{borderTop:"2px solid var(--ac)"}}><td colSpan={5} style={{fontWeight:700,fontSize:11}}>Net: {payer} owes {payee}</td><td className="mono" style={{textAlign:"right",fontWeight:800,color:"var(--ac)"}}>{usd(Math.abs(pairTotal))}</td><td/></tr>
+              <tr style={{borderTop:"2px solid var(--ac)"}}><td colSpan={6} style={{fontWeight:700,fontSize:11}}>Net: {payer} owes {payee}</td><td className="mono" style={{textAlign:"right",fontWeight:800,color:"var(--ac)"}}>{usd(Math.abs(pairTotal))}</td><td/></tr>
             </tbody>
           </table>
         </div>;
       })}
     </div>}
+  </>;
+}
+
+function BookkeeperTab({orders,payments}){
+  const[entity,setEntity]=useState("AU");
+  const[period,setPeriod]=useState("6M");
+  const go=id=>orders.find(o=>o.id===id);
+
+  const data=useMemo(()=>{
+    let pmts=payments.filter(p=>p.sourceEntity&&p.orderIds?.length);
+    if(period!=="all"){
+      const months=period==="1M"?1:period==="3M"?3:period==="1Y"?12:6;
+      const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);
+      pmts=pmts.filter(p=>!p.date||new Date(p.date)>=cutoff);
+    }
+
+    const outgoing=[];
+    const incoming=[];
+
+    pmts.forEach(p=>{
+      if(p.sourceEntity!==entity)return;
+      (p.orderIds||[]).forEach(oid=>{
+        const o=go(oid);if(!o)return;
+        const rawAmt=(p.allocations||{})[oid];
+        const depAmt=(typeof rawAmt==="object"&&rawAmt!==null)?(+rawAmt.deposit||0):0;
+        const relAmt=(typeof rawAmt==="object"&&rawAmt!==null)?(+rawAmt.release||0):0;
+        const amt=(depAmt+relAmt)||(+rawAmt||0);
+        const lineType=depAmt>0&&relAmt>0?"Full Amount":depAmt>0?"Deposit":"Release";
+        outgoing.push({date:p.date,ref:o.ref,supplier:o.supplier,dest:o.region,amount:amt,amtUSD:toUSD(amt,p.currency||"USD"),currency:p.currency||"USD",lineType,isIC:p.sourceEntity!==o.region,bank:p.bankAccount,docName:p.docName});
+      });
+    });
+
+    pmts.forEach(p=>{
+      if(p.sourceEntity===entity)return;
+      (p.orderIds||[]).forEach(oid=>{
+        const o=go(oid);if(!o||o.region!==entity)return;
+        const rawAmt=(p.allocations||{})[oid];
+        const depAmt=(typeof rawAmt==="object"&&rawAmt!==null)?(+rawAmt.deposit||0):0;
+        const relAmt=(typeof rawAmt==="object"&&rawAmt!==null)?(+rawAmt.release||0):0;
+        const amt=(depAmt+relAmt)||(+rawAmt||0);
+        const lineType=depAmt>0&&relAmt>0?"Full Amount":depAmt>0?"Deposit":"Release";
+        incoming.push({date:p.date,ref:o.ref,supplier:o.supplier,source:p.sourceEntity,amount:amt,amtUSD:toUSD(amt,p.currency||"USD"),currency:p.currency||"USD",lineType,bank:p.bankAccount,docName:p.docName});
+      });
+    });
+
+    outgoing.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    incoming.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+
+    const outTotal=outgoing.reduce((s,r)=>s+r.amtUSD,0);
+    const outIC=outgoing.filter(r=>r.isIC).reduce((s,r)=>s+r.amtUSD,0);
+    const outDirect=outTotal-outIC;
+    const inTotal=incoming.reduce((s,r)=>s+r.amtUSD,0);
+
+    return{outgoing,incoming,outTotal,outIC,outDirect,inTotal};
+  },[payments,orders,entity,period]);
+
+  const copyReport=()=>{
+    let txt=`BOOKKEEPER REPORT — ${entity}\n`;
+    txt+="Generated: "+new Date().toLocaleDateString("en-GB")+"\n";
+    txt+="Period: "+(period==="all"?"All time":period)+"\n\n";
+    txt+=`PAYMENTS MADE BY ${entity} (${data.outgoing.length} transactions, ${usd(data.outTotal)})\n`;
+    txt+="Date\tPO Ref\tSupplier\tType\tDestination\tAmount (USD)\tIC\tDocument\n";
+    data.outgoing.forEach(r=>{txt+=`${r.date}\t${r.ref}\t${r.supplier}\t${r.lineType}\t${r.dest}\t${usd(r.amtUSD)}\t${r.isIC?"Yes":"No"}\t${r.docName||""}\n`;});
+    txt+=`\nPAYMENTS RECEIVED FOR ${entity} STOCK FROM OTHER ENTITIES (${data.incoming.length} transactions, ${usd(data.inTotal)})\n`;
+    txt+="Date\tPO Ref\tSupplier\tType\tPaid By\tAmount (USD)\tDocument\n";
+    data.incoming.forEach(r=>{txt+=`${r.date}\t${r.ref}\t${r.supplier}\t${r.lineType}\t${r.source}\t${usd(r.amtUSD)}\t${r.docName||""}\n`;});
+    navigator.clipboard.writeText(txt);
+  };
+
+  return <>
+    <div className="ph"><div><h2>Bookkeeper Reports</h2><p className="ps">Payment summary by entity for accounting</p></div><div style={{display:"flex",gap:8}}><button onClick={copyReport} className="btn btn-ghost" style={{fontSize:12}}>📋 Copy Report</button></div></div>
+
+    <div className="filter-bar">
+      <div className="filter-section"><span className="filter-label">Entity</span><div className="btn-group">{ENTITIES.map(e=><button key={e} className={`bg-btn ${entity===e?"bg-act":""}`} onClick={()=>setEntity(e)}>{e}</button>)}</div></div>
+      <div className="filter-section"><span className="filter-label">Period</span><BtnGroup options={["1M","3M","6M","1Y"]} value={period} onChange={setPeriod} allLabel="All"/></div>
+    </div>
+
+    <div className="sg">
+      <div className="sc"><div className="sl">Total Paid by {entity}</div><div className="sv mono">{usd(data.outTotal)}</div><div className="ss">{data.outgoing.length} transactions</div></div>
+      <div className="sc"><div className="sl">Direct ({entity} stock)</div><div className="sv mono green">{usd(data.outDirect)}</div></div>
+      <div className="sc"><div className="sl">On Behalf of Others (IC)</div><div className="sv mono amber">{usd(data.outIC)}</div></div>
+      <div className="sc"><div className="sl">Paid by Others for {entity}</div><div className="sv mono" style={{color:"var(--ac)"}}>{usd(data.inTotal)}</div><div className="ss">{data.incoming.length} transactions</div></div>
+    </div>
+
+    <div style={{marginBottom:8,fontWeight:700,fontSize:14}}>Payments Made by {entity}</div>
+    <div className="tw" style={{marginBottom:24}}><div className="tsc"><table>
+      <thead><tr>
+        <th>Date</th><th>PO Ref</th><th>Supplier</th><th>Type</th><th>Destination</th><th>Bank</th><th style={{textAlign:"right"}}>Amount (USD)</th><th>IC</th><th>Document</th>
+      </tr></thead>
+      <tbody>
+        {data.outgoing.map((r,i)=><tr key={i}>
+          <td>{fmtDate(r.date)}</td>
+          <td className="cb">{r.ref}</td>
+          <td style={{color:"var(--tx2)"}}>{r.supplier}</td>
+          <td><span className={`badge ${r.lineType==="Deposit"?"badge-amber":r.lineType==="Release"?"badge-green":"badge-blue"}`} style={{fontSize:9}}>{r.lineType}</span></td>
+          <td><RegionBadge region={r.dest}/></td>
+          <td style={{fontSize:11,color:"var(--tx2)"}}>{BANKS.find(b=>b.id===r.bank)?.label||r.bank||"—"}</td>
+          <td className="mono" style={{textAlign:"right",fontWeight:600}}>{usd(r.amtUSD)}</td>
+          <td>{r.isIC?<span className="badge badge-amber" style={{fontSize:9}}>IC</span>:<span style={{color:"var(--tx3)"}}>—</span>}</td>
+          <td style={{fontSize:11,color:"var(--tx3)",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{r.docName||"—"}</td>
+        </tr>)}
+        {!data.outgoing.length&&<tr><td colSpan={9} className="ec">No payments made by {entity} in this period</td></tr>}
+        {data.outgoing.length>0&&<tr style={{borderTop:"2px solid var(--bd2)",background:"var(--s2)"}}>
+          <td colSpan={6} style={{fontWeight:700,fontSize:11}}>Total paid by {entity}</td>
+          <td className="mono" style={{textAlign:"right",fontWeight:800}}>{usd(data.outTotal)}</td><td colSpan={2}/>
+        </tr>}
+      </tbody>
+    </table></div></div>
+
+    <div style={{marginBottom:8,fontWeight:700,fontSize:14}}>Payments Received for {entity} Stock (from other entities)</div>
+    <div className="tw"><div className="tsc"><table>
+      <thead><tr>
+        <th>Date</th><th>PO Ref</th><th>Supplier</th><th>Type</th><th>Paid By</th><th>Bank</th><th style={{textAlign:"right"}}>Amount (USD)</th><th>Document</th>
+      </tr></thead>
+      <tbody>
+        {data.incoming.map((r,i)=><tr key={i}>
+          <td>{fmtDate(r.date)}</td>
+          <td className="cb">{r.ref}</td>
+          <td style={{color:"var(--tx2)"}}>{r.supplier}</td>
+          <td><span className={`badge ${r.lineType==="Deposit"?"badge-amber":r.lineType==="Release"?"badge-green":"badge-blue"}`} style={{fontSize:9}}>{r.lineType}</span></td>
+          <td><RegionBadge region={r.source}/></td>
+          <td style={{fontSize:11,color:"var(--tx2)"}}>{BANKS.find(b=>b.id===r.bank)?.label||r.bank||"—"}</td>
+          <td className="mono" style={{textAlign:"right",fontWeight:600}}>{usd(r.amtUSD)}</td>
+          <td style={{fontSize:11,color:"var(--tx3)",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{r.docName||"—"}</td>
+        </tr>)}
+        {!data.incoming.length&&<tr><td colSpan={8} className="ec">No payments by other entities for {entity} stock in this period</td></tr>}
+        {data.incoming.length>0&&<tr style={{borderTop:"2px solid var(--bd2)",background:"var(--s2)"}}>
+          <td colSpan={6} style={{fontWeight:700,fontSize:11}}>Total received for {entity} stock</td>
+          <td className="mono" style={{textAlign:"right",fontWeight:800}}>{usd(data.inTotal)}</td><td/>
+        </tr>}
+      </tbody>
+    </table></div></div>
   </>;
 }
 
@@ -2140,7 +2288,7 @@ function ForecastTab({orders}){
 // App
 function App(){
   const overlay=useLoading();
-  const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);const[showHelp,setShowHelp]=useState(false);
+  const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);const[showHelp,setShowHelp]=useState(false);const[bugNotes,setBugNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("bureau-bug-notes")||"[]");}catch{return[];}});const[bugInput,setBugInput]=useState("");const[showBugs,setShowBugs]=useState(false);
   const loadData=useCallback(async()=>{try{setLoading(true);setError(null);const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){setError(e.message);}finally{setLoading(false);};},[]);
   useEffect(()=>{loadData();},[loadData]);
   const refresh=useCallback(async()=>{overlay.show("Refreshing data...");try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}finally{overlay.hide();}},[overlay]);
@@ -2150,12 +2298,25 @@ function App(){
     <div className="sidebar"><div className="sidebar-logo"><h1>Bureau Ops</h1><span>Logistics & Payments</span></div>
     <nav className="sidebar-nav">{TABS.map(t=><button key={t.id} className={`ni ${tab===t.id?"act":""}`} onClick={()=>setTab(t.id)}><span className="nic">{t.icon}</span><span>{t.label}</span></button>)}</nav>
     <div className="sidebar-upload"><button className="sidebar-upload-btn" onClick={()=>setSideUpload(!sideUpload)}><span style={{fontSize:18}}>⬆</span><span>Upload Doc</span></button></div>
+    <div style={{padding:"0 8px",borderTop:"1px solid var(--bd)"}}>
+      <button onClick={()=>setShowBugs(!showBugs)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"8px 4px",border:"none",background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em",fontFamily:"'DM Sans',sans-serif"}}>
+        <span>{showBugs?"▾":"▸"}</span><span>Bug Fix Ideas</span>{bugNotes.length>0&&<span style={{background:"var(--rd)",color:"#fff",borderRadius:8,padding:"1px 6px",fontSize:9,fontWeight:700,marginLeft:"auto"}}>{bugNotes.length}</span>}
+      </button>
+      {showBugs&&<div style={{paddingBottom:8}}>
+        <div style={{display:"flex",gap:4,marginBottom:6}}><input value={bugInput} onChange={e=>setBugInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&bugInput.trim()){const n=[...bugNotes,{id:Date.now(),text:bugInput.trim(),created:new Date().toISOString()}];setBugNotes(n);localStorage.setItem("bureau-bug-notes",JSON.stringify(n));setBugInput("");}}} placeholder="Add note..." style={{flex:1,padding:"5px 8px",border:"1px solid var(--bd)",borderRadius:4,fontSize:11,fontFamily:"'DM Sans',sans-serif",outline:"none"}}/><button onClick={()=>{if(bugInput.trim()){const n=[...bugNotes,{id:Date.now(),text:bugInput.trim(),created:new Date().toISOString()}];setBugNotes(n);localStorage.setItem("bureau-bug-notes",JSON.stringify(n));setBugInput("");}}} style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:4,padding:"4px 8px",fontSize:11,cursor:"pointer",fontWeight:700}}>+</button></div>
+        <div style={{maxHeight:150,overflowY:"auto"}}>{bugNotes.map(n=><div key={n.id} style={{display:"flex",alignItems:"flex-start",gap:4,padding:"4px 0",borderBottom:"1px solid var(--s2)",fontSize:11,color:"var(--tx2)"}}>
+          <span style={{flex:1,lineHeight:1.3}}>{n.text}</span>
+          <button onClick={()=>{const f=bugNotes.filter(x=>x.id!==n.id);setBugNotes(f);localStorage.setItem("bureau-bug-notes",JSON.stringify(f));}} style={{background:"none",border:"none",cursor:"pointer",color:"var(--rd)",fontSize:10,padding:"0 2px",flexShrink:0}}>✕</button>
+        </div>)}{bugNotes.length===0&&<div style={{fontSize:10,color:"var(--tx3)",fontStyle:"italic",padding:"4px 0"}}>No notes yet</div>}</div>
+      </div>}
+    </div>
     <div className="sf"><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{orders.length} POs · {payments.length} payments</span><div style={{display:"flex",gap:6,alignItems:"center"}}><a href="https://docs.google.com/spreadsheets/d/1a_j_qCDWF9y8LUfT3iq-R5ZzydID-A36/edit?gid=17854855#gid=17854855&fvid=547760767" target="_blank" rel="noopener" style={{background:"#34a853",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:13,cursor:"pointer",fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none"}} title="Open Google Sheet">📊</a><button onClick={()=>setShowHelp(true)} style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:14,cursor:"pointer",fontWeight:700}} title="Backend guide & troubleshooting">?</button></div></div>{lastRefresh&&<div style={{marginTop:4,cursor:"pointer"}} onClick={refresh} title="Click to refresh">🔄 {lastRefresh.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>}</div></div>
     <main className="mn">
       {sideUpload&&<div className="us" style={{marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontWeight:700,fontSize:14}}>Quick Upload</span><button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:11}} onClick={()=>setSideUpload(false)}>✕ Close</button></div><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={refresh}/></div>}
       {tab==="orders"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="payments"&&<PaymentsTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="clearing"&&<IntercompanyTab orders={orders} payments={payments}/>}
+      {tab==="bookkeeper"&&<BookkeeperTab orders={orders} payments={payments}/>}
       {tab==="forecast"&&<ForecastTab orders={orders}/>}
     </main>
     {showHelp&&<HelpModal onClose={()=>setShowHelp(false)}/>}

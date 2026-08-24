@@ -1,0 +1,152 @@
+diff --git a/index.html b/index.html
+index 412a7d5..df8f089 100644
+--- a/index.html
++++ b/index.html
+@@ -678,17 +678,20 @@ function EditOrderModal({order,payments,onSave,onRefresh,onClose}){
+   </div></div>;
+ }
+ 
+-// EditPaymentModal — edit payment type, amount, allocations, date
++// EditPaymentModal — edit payment type, amount, allocations, date, add/remove POs
+ function EditPaymentModal({payment,orders,onSave,onClose}){
+   const loading=useLoading();
+   const[ed,setEd]=useState({...payment});
+   const[saving,setSaving]=useState(false);
++  const[poSearch,setPoSearch]=useState("");
++  const[showPoSearch,setShowPoSearch]=useState(false);
+   const sf=(k,v)=>setEd(p=>({...p,[k]:v}));
+   const go=id=>orders.find(o=>o.id===id);
+ 
+-  // Parse allocations
++  // Parse allocations — rebuild from ed state each render
+   const allocs=ed.allocations||{};
+-  const linkedOrders=(ed.orderIds||[]).map(oid=>{
++  const orderIds=ed.orderIds||[];
++  const linkedOrders=orderIds.map(oid=>{
+     const o=go(oid);
+     const a=allocs[oid];
+     const depAlloc=(a&&typeof a==="object")?(+(a.deposit)||0):((ed.type==="Deposit"||ed.type==="Full Amount")?(+(a)||0):0);
+@@ -696,23 +699,53 @@ function EditPaymentModal({payment,orders,onSave,onClose}){
+     return{oid,order:o,ref:o?.ref||oid,region:o?.region||"",depAlloc,relAlloc};
+   });
+ 
++  // PO search results
++  const poMatches=useMemo(()=>poSearch.trim()?fuzzyMatchPO(poSearch,orders,[]):[], [poSearch,orders]);
++
++  // Add a PO to this payment
++  const addPO=(order)=>{
++    setEd(prev=>{
++      const newIds=[...(prev.orderIds||[])];
++      if(newIds.includes(order.id))return prev;
++      newIds.push(order.id);
++      const newAllocs={...(prev.allocations||{})};
++      newAllocs[order.id]={deposit:0,release:0};
++      return{...prev,orderIds:newIds,allocations:newAllocs};
++    });
++    setPoSearch("");setShowPoSearch(false);
++  };
++
++  // Remove a PO from this payment
++  const removePO=(oid)=>{
++    setEd(prev=>{
++      const newIds=(prev.orderIds||[]).filter(id=>id!==oid);
++      const newAllocs={...(prev.allocations||{})};
++      delete newAllocs[oid];
++      return{...prev,orderIds:newIds,allocations:newAllocs};
++    });
++  };
++
+   const savePayment=async()=>{
+     setSaving(true);loading.show("Saving payment...");
+     try{
+-      // Rebuild allocations from form
++      // Rebuild allocations from current ed state
++      const curAllocs=ed.allocations||{};
++      const curIds=ed.orderIds||[];
+       const newAllocs={};
+-      linkedOrders.forEach(lo=>{
+-        newAllocs[lo.oid]={deposit:lo.depAlloc,release:lo.relAlloc};
++      curIds.forEach(oid=>{
++        const a=curAllocs[oid];
++        if(a&&typeof a==="object"){newAllocs[oid]={deposit:+(a.deposit)||0,release:+(a.release)||0};}
++        else{newAllocs[oid]={deposit:0,release:+(a)||0};}
+       });
+       // Determine payment type from allocations
+-      const hasDep=linkedOrders.some(lo=>lo.depAlloc>0.01);
+-      const hasRel=linkedOrders.some(lo=>lo.relAlloc>0.01);
++      const hasDep=Object.values(newAllocs).some(a=>a.deposit>0.01);
++      const hasRel=Object.values(newAllocs).some(a=>a.release>0.01);
+       const newType=hasDep&&hasRel?"Mixed":hasDep?"Deposit":"Release";
+       await apiPatch(`/api/payments/${encodeURIComponent(payment.id)}`,{
+         amount:+(ed.amount)||0,currency:ed.currency||"USD",
+         date:ed.date||"",type:newType,
+         bankAccount:ed.bankAccount||"",sourceEntity:ed.sourceEntity||"",
+-        allocations:newAllocs,notes:ed.notes||"",docName:ed.docName||""
++        orderIds:curIds,allocations:newAllocs,notes:ed.notes||"",docName:ed.docName||""
+       });
+       await onSave();
+     }catch(e){alert("Save failed: "+e.message);}finally{setSaving(false);loading.hide();}
+@@ -730,16 +763,13 @@ function EditPaymentModal({payment,orders,onSave,onClose}){
+       }
+       return{...prev,allocations:newAllocs};
+     });
+-    // Also update linkedOrders view
+-    const lo=linkedOrders.find(l=>l.oid===oid);
+-    if(lo){if(stage==="deposit")lo.depAlloc=amt;else lo.relAlloc=amt;}
+   };
+ 
+   const totalAlloc=linkedOrders.reduce((s,lo)=>s+lo.depAlloc+lo.relAlloc,0);
+   const payAmt=+(ed.amount)||0;
+   const diff=payAmt-totalAlloc;
+ 
+-  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:600,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
++  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:640,width:"90%",maxHeight:"90vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
+     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+       <h2 style={{margin:0}}>Edit Payment</h2>
+       <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--tx3)",padding:"4px 8px"}}>✕</button>
+@@ -753,7 +783,9 @@ function EditPaymentModal({payment,orders,onSave,onClose}){
+     </div>
+ 
+     {/* Allocations */}
+-    <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)",marginBottom:8}}>Allocations to POs</div>
++    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
++      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--tx3)"}}>Allocations to POs</div>
++    </div>
+     {linkedOrders.map(lo=>{
+       const o=lo.order;
+       return <div key={lo.oid} style={{padding:12,marginBottom:8,background:"var(--s2)",borderRadius:"var(--r)",border:"1px solid var(--bd)"}}>
+@@ -761,6 +793,8 @@ function EditPaymentModal({payment,orders,onSave,onClose}){
+           <RegionBadge region={lo.region}/>
+           <span style={{fontWeight:700,fontSize:13}}>{lo.ref}</span>
+           {o&&<span style={{fontSize:11,color:"var(--tx3)"}}>{o.inv} · {o.supplier}</span>}
++          <div style={{flex:1}}/>
++          {orderIds.length>1&&<button onClick={()=>removePO(lo.oid)} style={{background:"none",border:"1px solid var(--bd)",borderRadius:4,padding:"2px 8px",fontSize:11,cursor:"pointer",color:"var(--rd)",fontWeight:600}} title="Remove this PO from payment">✕ Remove</button>}
+         </div>
+         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+           <div>
+@@ -775,6 +809,25 @@ function EditPaymentModal({payment,orders,onSave,onClose}){
+       </div>;
+     })}
+ 
++    {/* Add PO search */}
++    {!showPoSearch?<button onClick={()=>setShowPoSearch(true)} style={{background:"none",border:"2px dashed var(--bd2)",borderRadius:"var(--r)",padding:"10px 16px",width:"100%",cursor:"pointer",fontSize:12,fontWeight:600,color:"var(--ac)",marginBottom:12,fontFamily:"'DM Sans',sans-serif",transition:"all .15s"}} onMouseOver={e=>e.target.style.borderColor="var(--ac)"} onMouseOut={e=>e.target.style.borderColor="var(--bd2)"}>+ Add or change PO allocation</button>
++    :<div style={{marginBottom:12,border:"2px solid var(--ac)",borderRadius:"var(--r)",padding:12,background:"var(--acl)"}}>
++      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
++        <span style={{fontSize:12,fontWeight:600,color:"var(--ac)"}}>Search for a PO to add</span>
++        <button onClick={()=>{setShowPoSearch(false);setPoSearch("");}} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"var(--tx3)",padding:"2px 6px"}}>✕</button>
++      </div>
++      <input className="ri" value={poSearch} onChange={e=>setPoSearch(e.target.value)} placeholder="Type PO# or invoice number..." autoFocus style={{width:"100%",marginBottom:6}}/>
++      {poMatches.filter(m=>!orderIds.includes(m.id)).slice(0,5).map(m=><div key={m.id} onClick={()=>addPO(m)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"var(--wh)",border:"1px solid var(--bd)",borderRadius:6,marginBottom:4,cursor:"pointer",transition:"all .12s"}} onMouseOver={e=>e.currentTarget.style.borderColor="var(--ac)"} onMouseOut={e=>e.currentTarget.style.borderColor="var(--bd)"}>
++        <span style={{width:22,height:22,borderRadius:4,background:"var(--gn)",color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>+</span>
++        <div style={{flex:1,minWidth:0}}>
++          <div style={{fontWeight:700,fontSize:12}}>{m.ref} <span style={{fontWeight:400,color:"var(--tx3)"}}>{m.inv} · {m.supplier}</span></div>
++          <div style={{fontSize:11,color:"var(--tx3)"}}>Dep: {usd(toUSD(m.depositAmt,m.currency))} · Rel: {usd(toUSD(m.releaseAmt,m.currency))} · <RegionBadge region={m.region}/></div>
++        </div>
++        <span className="mono" style={{fontSize:11,color:"var(--tx3)"}}>{m.score}%</span>
++      </div>)}
++      {poSearch.trim()&&poMatches.filter(m=>!orderIds.includes(m.id)).length===0&&<div style={{fontSize:12,color:"var(--tx3)",padding:"8px 0"}}>No matching POs found</div>}
++    </div>}
++
+     {/* Allocation summary */}
+     <div style={{padding:"10px 14px",marginBottom:16,background:Math.abs(diff)<0.01?"#ecfdf5":diff<0?"#fef2f2":"#eff6ff",borderRadius:"var(--r)",border:`1px solid ${Math.abs(diff)<0.01?"var(--gnbd)":diff<0?"var(--rd)":"var(--ac)"}`}}>
+       <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>

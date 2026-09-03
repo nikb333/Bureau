@@ -1992,12 +1992,15 @@ function buildEmailTemplate(tone,recipient,p,orders){
       `\nRemittance is on Drive for reference.\n\nCheers`;
     return{subject,body};
   }
+  const money=v=>"$"+Number(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const poLines=linked.map(l=>`PO #${String(l.ref).replace(/^PO-?/i,"")}  ${money(l.amount)}`).join("\n");
   const subject=`Bureau — Payment Confirmation — ${poDisplay}`;
   const body=`Hi ${recipient||"there"},\n\n`+
     `I'm writing to confirm that payment for Purchase Order${plural} ${poHash} has been processed. `+
     `Please find the payment receipt/remittance attached for your reference.\n\n`+
     `Payment details:\n`+
-    `  •  Amount: ${amt} ${cur}\n`+
+    (poLines?poLines+"\n\n":"")+
+    `  •  Total Amount: ${amt} ${cur}\n`+
     `  •  Date of payment: ${dt}\n\n`+
     `Kindly confirm once the funds have been received.\n\n`+
     `Kind regards,\nBureau Ops`;

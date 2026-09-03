@@ -1042,16 +1042,48 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
     });
     setSelected(next);
   };
-  const deselectAll=()=>{
-    const filterIds=new Set(filteredLines.map(l=>l.lineId));
-    setSelected(prev=>{
-      const next=new Map();
-      prev.forEach((v,k)=>{if(!filterIds.has(k))next.set(k,v);});
-      return next;
-    });
-  };
-  const allChecked=filteredLines.length>0&&filteredLines.every(l=>selected.has(l.lineId));
   const availableSuppliers=useMemo(()=>[...new Set(lines.map(l=>l.supplier).filter(Boolean))].sort(),[lines]);
+  // Xero-style: the long unpaid list only appears once the user searches or filters
+  const showList=search.trim()!==""||regionFilter!=="All"||supplierFilter!=="All";
+  const selectedLines=useMemo(()=>[...selected.values()].map(v=>v.line).sort((a,b)=>(a.ref||"").localeCompare(b.ref||"")||(a.lineType==="deposit"?-1:1)),[selected]);
+  const addableLines=useMemo(()=>filteredLines.filter(l=>!selected.has(l.lineId)),[filteredLines,selected]);
+  const clearAll=()=>{setSelected(new Map());setSplitOpen(null);setSplitAmt("");};
+
+  const renderLine=(l)=>{
+    const out=l.outstanding||l.lineAmtUSD;
+    const isChecked=selected.has(l.lineId);
+    const sel=selected.get(l.lineId);
+    const isSplitRow=splitOpen===l.lineId;
+    return <div key={l.lineId}>
+      <div onClick={()=>toggleLine(l)} style={{display:"flex",alignItems:"center",padding:"10px 14px",borderBottom:"1px solid var(--s3)",cursor:"pointer",background:isChecked?"#f0f7ff":"var(--wh)",transition:"background .12s"}}>
+        <div style={{width:32,flexShrink:0,textAlign:"center"}}><input type="checkbox" checked={isChecked} onChange={()=>{}} style={{cursor:"pointer",accentColor:"var(--ac)",pointerEvents:"none"}}/></div>
+        <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8}}>
+          <RegionBadge region={l.region}/>
+          <span style={{fontWeight:600,fontSize:13}}>{l.ref}</span>
+          <LineBadge type={l.lineType}/>
+          <span style={{fontSize:11,color:"var(--tx3)"}}>{l.inv}</span>
+          <span style={{fontSize:11,color:"var(--tx3)"}}>· {l.supplier}</span>
+        </div>
+        <div className="mono" style={{width:110,textAlign:"right",fontWeight:600,fontSize:13,color:"var(--am)"}}>{usd(out)}</div>
+        <div style={{width:130,textAlign:"right",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6}} onClick={e=>e.stopPropagation()}>
+          {isChecked&&<>
+            <span className="mono" style={{fontWeight:700,fontSize:13,color:sel.isSplit?"var(--am)":"var(--gn)"}}>{usd(sel.amount)}</span>
+            <button onClick={e=>{e.stopPropagation();if(isSplitRow){setSplitOpen(null);setSplitAmt("");}else{setSplitOpen(l.lineId);setSplitAmt(sel.isSplit?String(sel.amount):"");}}} style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,border:`1px solid ${sel.isSplit?"var(--am)":"var(--bd)"}`,background:sel.isSplit?"var(--amb)":isSplitRow?"var(--acl)":"transparent",color:sel.isSplit?"var(--am)":"var(--tx3)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",lineHeight:"16px"}}>{sel.isSplit?"Split":"Split"}</button>
+          </>}
+          {!isChecked&&<span className="mono" style={{fontSize:13,color:"var(--tx3)"}}>—</span>}
+        </div>
+      </div>
+      {/* Split inline editor */}
+      {isSplitRow&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px 8px 46px",background:"#f8faff",borderBottom:"1px solid var(--s3)"}}>
+        <span style={{fontSize:12,color:"var(--tx2)",fontWeight:600}}>Pay:</span>
+        <input type="number" step="0.01" value={splitAmt} onChange={e=>setSplitAmt(e.target.value)} className="ri" style={{width:130,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:13,padding:"6px 10px"}} placeholder="0.00" autoFocus onKeyDown={e=>{if(e.key==="Enter")applySplit(l.lineId);if(e.key==="Escape"){setSplitOpen(null);setSplitAmt("");}}}/>
+        <span style={{fontSize:11,color:"var(--tx3)"}}>of {usd(out)}</span>
+        <button onClick={()=>applySplit(l.lineId)} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:5,border:"none",background:"var(--ac)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} disabled={!(+(splitAmt)>0)}>Apply</button>
+        {sel.isSplit&&<button onClick={()=>{resetToFull(l.lineId);setSplitOpen(null);setSplitAmt("");}} style={{fontSize:11,fontWeight:600,padding:"5px 10px",borderRadius:5,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Full</button>}
+        <button onClick={()=>{setSplitOpen(null);setSplitAmt("");}} style={{fontSize:18,color:"var(--tx3)",background:"none",border:"none",cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+      </div>}
+    </div>;
+  };
 
   return <div className="rc">
     <div className="rc-h"><div><div className="rc-t">Match Transactions</div><div className="rc-f">{fileName}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:11,color:"var(--tx3)",fontWeight:600}}>Payment Amount</div><div className="mono" style={{fontSize:22,fontWeight:800,color:"var(--tx)"}}>{usd(payAmt)}</div></div></div>
@@ -1074,52 +1106,32 @@ function RemittanceAllocationUI({parsed,ed,setEd,onConfirm,onCancel,cancelLabel,
       </div>
 
       <div style={{border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden",marginBottom:16}}>
-        {/* Header */}
+        {/* Column header */}
         <div style={{display:"flex",alignItems:"center",padding:"8px 14px",background:"var(--s2)",borderBottom:"1px solid var(--bd)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",color:"var(--tx3)"}}>
-          <div style={{width:32,flexShrink:0,textAlign:"center"}}><input type="checkbox" checked={allChecked} onChange={()=>allChecked?deselectAll():selectAll()} style={{cursor:"pointer",accentColor:"var(--ac)"}}/></div>
+          <div style={{width:32,flexShrink:0}}/>
           <div style={{flex:1,minWidth:0}}>Transaction</div>
           <div style={{width:110,textAlign:"right"}}>Outstanding</div>
           <div style={{width:130,textAlign:"right"}}>Allocating</div>
         </div>
 
-        {/* Rows */}
-        <div style={{maxHeight:320,overflowY:"auto"}}>
-          {filteredLines.map(l=>{
-            const out=l.outstanding||l.lineAmtUSD;
-            const isChecked=selected.has(l.lineId);
-            const sel=selected.get(l.lineId);
-            const isSplitRow=splitOpen===l.lineId;
-            return <div key={l.lineId}>
-              <div onClick={()=>toggleLine(l)} style={{display:"flex",alignItems:"center",padding:"10px 14px",borderBottom:"1px solid var(--s3)",cursor:"pointer",background:isChecked?"#f0f7ff":"var(--wh)",transition:"background .12s"}}>
-                <div style={{width:32,flexShrink:0,textAlign:"center"}}><input type="checkbox" checked={isChecked} onChange={()=>{}} style={{cursor:"pointer",accentColor:"var(--ac)",pointerEvents:"none"}}/></div>
-                <div style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:8}}>
-                  <RegionBadge region={l.region}/>
-                  <span style={{fontWeight:600,fontSize:13}}>{l.ref}</span>
-                  <LineBadge type={l.lineType}/>
-                  <span style={{fontSize:11,color:"var(--tx3)"}}>{l.inv}</span>
-                  <span style={{fontSize:11,color:"var(--tx3)"}}>· {l.supplier}</span>
-                </div>
-                <div className="mono" style={{width:110,textAlign:"right",fontWeight:600,fontSize:13,color:"var(--am)"}}>{usd(out)}</div>
-                <div style={{width:130,textAlign:"right",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6}} onClick={e=>e.stopPropagation()}>
-                  {isChecked&&<>
-                    <span className="mono" style={{fontWeight:700,fontSize:13,color:sel.isSplit?"var(--am)":"var(--gn)"}}>{usd(sel.amount)}</span>
-                    <button onClick={e=>{e.stopPropagation();if(isSplitRow){setSplitOpen(null);setSplitAmt("");}else{setSplitOpen(l.lineId);setSplitAmt(sel.isSplit?String(sel.amount):"");}}} style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:4,border:`1px solid ${sel.isSplit?"var(--am)":"var(--bd)"}`,background:sel.isSplit?"var(--amb)":isSplitRow?"var(--acl)":"transparent",color:sel.isSplit?"var(--am)":"var(--tx3)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",lineHeight:"16px"}}>{sel.isSplit?"Split":"Split"}</button>
-                  </>}
-                  {!isChecked&&<span className="mono" style={{fontSize:13,color:"var(--tx3)"}}>—</span>}
-                </div>
-              </div>
-              {/* Split inline editor */}
-              {isSplitRow&&<div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px 8px 46px",background:"#f8faff",borderBottom:"1px solid var(--s3)"}}>
-                <span style={{fontSize:12,color:"var(--tx2)",fontWeight:600}}>Pay:</span>
-                <input type="number" step="0.01" value={splitAmt} onChange={e=>setSplitAmt(e.target.value)} className="ri" style={{width:130,fontFamily:"'JetBrains Mono',monospace",fontWeight:700,fontSize:13,padding:"6px 10px"}} placeholder="0.00" autoFocus onKeyDown={e=>{if(e.key==="Enter")applySplit(l.lineId);if(e.key==="Escape"){setSplitOpen(null);setSplitAmt("");}}}/>
-                <span style={{fontSize:11,color:"var(--tx3)"}}>of {usd(out)}</span>
-                <button onClick={()=>applySplit(l.lineId)} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:5,border:"none",background:"var(--ac)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}} disabled={!(+(splitAmt)>0)}>Apply</button>
-                {sel.isSplit&&<button onClick={()=>{resetToFull(l.lineId);setSplitOpen(null);setSplitAmt("");}} style={{fontSize:11,fontWeight:600,padding:"5px 10px",borderRadius:5,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Full</button>}
-                <button onClick={()=>{setSplitOpen(null);setSplitAmt("");}} style={{fontSize:18,color:"var(--tx3)",background:"none",border:"none",cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
-              </div>}
-            </div>;
-          })}
-          {filteredLines.length===0&&<div style={{textAlign:"center",padding:24,color:"var(--tx3)",fontSize:13}}>{search.trim()?"No matching unpaid transactions":"No unpaid transactions"}</div>}
+        <div style={{maxHeight:360,overflowY:"auto"}}>
+          {/* Selected band — matched POs always sit at the top, Xero-style */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",background:"#ecfdf5",borderBottom:"1px solid var(--gnbd)"}}>
+            <span style={{fontSize:12,fontWeight:800,color:"var(--gn)",letterSpacing:".02em"}}>✓ Selected ({selected.size})</span>
+            {selected.size>0&&<button onClick={clearAll} style={{fontSize:11,fontWeight:700,color:"var(--rd)",background:"none",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",padding:"2px 4px"}}>Clear all</button>}
+          </div>
+          {selectedLines.map(renderLine)}
+          {selected.size===0&&<div style={{textAlign:"center",padding:"22px 24px",color:"var(--tx3)",fontSize:13,lineHeight:1.5}}>No transactions selected yet — use the search box above to find POs to add.</div>}
+
+          {/* Add-more list — hidden until the user searches or filters */}
+          {showList&&<>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",background:"var(--s2)",borderTop:"1px solid var(--bd)",borderBottom:"1px solid var(--bd)"}}>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".05em"}}>Add more ({addableLines.length} available)</span>
+              {addableLines.length>0&&<button onClick={selectAll} style={{fontSize:11,fontWeight:700,color:"var(--ac)",background:"none",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",padding:"2px 4px"}}>Add all</button>}
+            </div>
+            {addableLines.map(renderLine)}
+            {addableLines.length===0&&<div style={{textAlign:"center",padding:20,color:"var(--tx3)",fontSize:13}}>No more matching unpaid transactions</div>}
+          </>}
         </div>
       </div>
     </div>
@@ -1933,11 +1945,143 @@ function OrdersTab({orders,payments,onRefresh}){
     {uploadFor&&<RowUploadModal order={uploadFor} onClose={()=>setUploadFor(null)} onRefresh={onRefresh}/>}
   </>;
 }
+// Derive linked PO rows (with stage + allocated amount) for a payment
+function paymentLinkedPOs(p,orders){
+  const go=id=>orders.find(o=>o.id===id);
+  const rows=(p.orderIds||[]).map(oid=>{
+    const o=go(oid);
+    const a=(p.allocations||{})[oid];
+    let dep=0,rel=0;
+    if(a&&typeof a==="object"){dep=+(a.deposit)||0;rel=+(a.release)||0;}
+    else if(a!=null&&a!==""){const n=+(a)||0;if(p.type==="Deposit")dep=n;else if(p.type==="Release")rel=n;else dep=n;}
+    const amount=dep+rel;
+    const stage=dep>0&&rel>0?"Deposit + Release":dep>0?"Deposit":rel>0?"Release":(p.type||"—");
+    return{oid,order:o,ref:o?.ref||oid,supplier:o?.supplier||"",region:o?.region||"",inv:o?.inv||"",stage,amount};
+  });
+  // Fallback: single-PO legacy payments with no allocation figure — show the whole payment
+  if(rows.length===1&&rows[0].amount<0.01)rows[0].amount=+(p.amount)||0;
+  return rows;
+}
+
+const fmtPayDate=iso=>{const parts=(iso||"").split("-");return parts.length===3?`${+parts[2]}/${parts[1]}/${parts[0]}`:(iso||"");};
+
+// Build tone-specific email {subject, body} for a payment confirmation
+function buildEmailTemplate(tone,recipient,p,orders){
+  const linked=paymentLinkedPOs(p,orders);
+  const poList=linked.map(l=>l.ref).filter(Boolean);
+  const poDisplay=poList.length?poList.join(", "):"N/A";
+  const poHash=poList.map(r=>"#"+String(r).replace(/^PO-?/i,"")).join(", ")||poDisplay;
+  const cur=p.currency||"USD";
+  const amt=Number(p.amount||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const dt=fmtPayDate(p.date);
+  const bankLabel=BANKS.find(b=>b.id===p.bankAccount)?.label||p.bankAccount||"—";
+  const doc=p.docName||"—";
+  const plural=poList.length>1?"s":"";
+  if(tone==="colleague"){
+    const suppliers=[...new Set(linked.map(l=>l.supplier).filter(Boolean))].join(", ");
+    const subject=`Payment recorded — ${poDisplay} (${amt} ${cur})`;
+    const body=`Hi ${recipient||"team"},\n\nLogging a payment in the Bureau Ops dashboard:\n\n`+
+      `  •  PO(s): ${poHash}${suppliers?" ("+suppliers+")":""}\n`+
+      `  •  Amount: ${amt} ${cur}\n`+
+      `  •  Date: ${dt}\n`+
+      `  •  Source entity: ${p.sourceEntity||"—"}\n`+
+      `  •  Bank: ${bankLabel}\n`+
+      `  •  Type: ${p.type||"—"}\n`+
+      `  •  Remittance doc: ${doc}\n`+
+      (p.notes?`\nNotes: ${p.notes}\n`:"")+
+      `\nRemittance is on Drive for reference.\n\nCheers`;
+    return{subject,body};
+  }
+  const subject=`Bureau — Payment Confirmation — ${poDisplay}`;
+  const body=`Hi ${recipient||"there"},\n\n`+
+    `I'm writing to confirm that payment for Purchase Order${plural} ${poHash} has been processed. `+
+    `Please find the payment receipt/remittance attached for your reference.\n\n`+
+    `Payment details:\n`+
+    `  •  Amount: ${amt} ${cur}\n`+
+    `  •  Date of payment: ${dt}\n\n`+
+    `Kindly confirm once the funds have been received.\n\n`+
+    `Kind regards,\nBureau Ops`;
+  return{subject,body};
+}
+
+// Email Template modal — copy-pasteable confirmation with tone toggle
+function EmailTemplateModal({payment,orders,onClose}){
+  const linked=paymentLinkedPOs(payment,orders);
+  const defaultSupplier=[...new Set(linked.map(l=>l.supplier).filter(Boolean))][0]||"";
+  const[tone,setTone]=useState("supplier");
+  const[recipient,setRecipient]=useState(defaultSupplier||"there");
+  const init=buildEmailTemplate("supplier",defaultSupplier||"there",payment,orders);
+  const[subject,setSubject]=useState(init.subject);
+  const[body,setBody]=useState(init.body);
+  const[copied,setCopied]=useState("");
+  const applyTone=t=>{const r=t==="colleague"?"team":(defaultSupplier||"there");setTone(t);setRecipient(r);const g=buildEmailTemplate(t,r,payment,orders);setSubject(g.subject);setBody(g.body);};
+  const regen=()=>{const g=buildEmailTemplate(tone,recipient,payment,orders);setSubject(g.subject);setBody(g.body);};
+  const copy=(text,label)=>{navigator.clipboard.writeText(text).then(()=>{setCopied(label);setTimeout(()=>setCopied(""),1600);}).catch(()=>alert("Copy failed — select the text manually."));};
+  const gmailUrl=`https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const toneBtn=(id,label)=><button onClick={()=>applyTone(id)} style={{flex:1,padding:"8px 12px",fontSize:12,fontWeight:700,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",background:tone===id?"var(--ac)":"transparent",color:tone===id?"#fff":"var(--tx2)"}}>{label}</button>;
+  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1001}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:640,width:"92%",maxHeight:"92vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><h2 style={{margin:0,fontSize:18}}>✉️ Email Template</h2><button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--tx3)",padding:"4px 8px"}}>✕</button></div>
+    <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:6}}>Tone</div>
+    <div style={{display:"flex",border:"1px solid var(--bd)",borderRadius:8,overflow:"hidden",marginBottom:16}}>{toneBtn("supplier","Supplier")}<div style={{width:1,background:"var(--bd)"}}/>{toneBtn("colleague","Colleague")}</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"end",marginBottom:12}}>
+      <div><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Recipient name</div><input className="ri" value={recipient} onChange={e=>setRecipient(e.target.value)} placeholder="Recipient"/></div>
+      <button onClick={regen} style={{fontSize:12,fontWeight:700,padding:"9px 14px",borderRadius:6,border:"1px solid var(--bd)",background:"var(--wh)",color:"var(--tx2)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}} title="Rebuild subject & body from this recipient + tone">↺ Regenerate</button>
+    </div>
+    <div style={{marginBottom:12}}><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Subject</div><input className="ri" value={subject} onChange={e=>setSubject(e.target.value)}/></div>
+    <div style={{marginBottom:16}}><div style={{fontSize:11,color:"var(--tx3)",marginBottom:4,fontWeight:600}}>Body</div><textarea className="ri" value={body} onChange={e=>setBody(e.target.value)} style={{width:"100%",minHeight:220,resize:"vertical",fontFamily:"'DM Sans',sans-serif",fontSize:13,lineHeight:1.5,padding:"10px 12px",boxSizing:"border-box"}}/></div>
+    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+      <button className="btn btn-ghost" onClick={()=>copy(body,"body")}>{copied==="body"?"✓ Copied":"Copy Body"}</button>
+      <button className="btn btn-ghost" onClick={()=>copy(`Subject: ${subject}\n\n${body}`,"both")}>{copied==="both"?"✓ Copied":"Copy Subject+Body"}</button>
+      <a className="btn btn-primary" href={gmailUrl} target="_blank" rel="noopener" style={{textDecoration:"none",marginLeft:"auto"}}>Open in Gmail ↗</a>
+    </div>
+  </div></div>;
+}
+
+// Read-only Payment Details popup
+function PaymentDetailsModal({payment,orders,onClose,onEmail}){
+  const p=payment;
+  const linked=paymentLinkedPOs(p,orders);
+  const bankLabel=BANKS.find(b=>b.id===p.bankAccount)?.label||p.bankAccount||"—";
+  const driveFolderId=(p.orderIds||[]).map(id=>orders.find(o=>o.id===id)?.driveFolderId).find(Boolean);
+  const cur=p.currency||"USD";
+  const cell={padding:"7px 10px",fontSize:12.5,borderBottom:"1px solid var(--s3)"};
+  const kv=(k,v)=><div><div style={{fontSize:10,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:3}}>{k}</div><div style={{fontSize:13,fontWeight:600}}>{v}</div></div>;
+  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}} onClick={onClose}><div style={{background:"var(--wh)",borderRadius:"var(--r2)",maxWidth:660,width:"92%",maxHeight:"92vh",overflow:"auto",padding:24}} onClick={e=>e.stopPropagation()}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+      <div><h2 style={{margin:0,fontSize:18}}>Payment Details</h2><div style={{fontSize:12,color:"var(--tx3)",marginTop:2}}>{p.id}</div></div>
+      <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"var(--tx3)",padding:"4px 8px"}}>✕</button>
+    </div>
+    <div style={{display:"flex",alignItems:"baseline",gap:12,marginBottom:16,padding:"14px 18px",background:"var(--s2)",borderRadius:"var(--r2)"}}>
+      <div className="mono" style={{fontSize:26,fontWeight:800}}>{(p.amount||0).toLocaleString()} <span style={{fontSize:15,color:"var(--tx3)"}}>{cur}</span></div>
+      {cur!=="USD"&&<div className="mono" style={{fontSize:14,color:"var(--tx3)"}}>≈ {usd(toUSD(p.amount,cur))} USD</div>}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,marginBottom:18}}>
+      {kv("Payment Date",fmtDate(p.date))}
+      {kv("Type",<span className="badge badge-green">{p.type||"—"}</span>)}
+      {kv("Source Entity",<span style={{display:"inline-flex"}}><RegionBadge region={p.sourceEntity}/></span>)}
+      {kv("Bank",bankLabel)}
+    </div>
+    <div style={{fontSize:11,fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".04em",marginBottom:8}}>Linked POs ({linked.length})</div>
+    <div style={{border:"1px solid var(--bd)",borderRadius:"var(--r2)",overflow:"hidden",marginBottom:18}}>
+      <div style={{display:"flex",padding:"7px 10px",background:"var(--s2)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--tx3)"}}><div style={{width:90}}>Ref</div><div style={{flex:1}}>Supplier</div><div style={{width:110}}>Stage</div><div style={{width:44,textAlign:"center"}}>Region</div><div style={{width:110,textAlign:"right"}}>Amount</div></div>
+      {linked.map((l,i)=><div key={l.oid+i} style={{display:"flex",alignItems:"center",...cell}}><div style={{width:90,fontWeight:600}}>{l.ref}</div><div style={{flex:1,color:"var(--tx2)"}}>{l.supplier||"—"}</div><div style={{width:110}}><span className="badge badge-blue">{l.stage}</span></div><div style={{width:44,textAlign:"center"}}><RegionBadge region={l.region}/></div><div className="mono" style={{width:110,textAlign:"right",fontWeight:700}}>{usd(toUSD(l.amount,cur))}</div></div>)}
+      {linked.length===0&&<div style={{textAlign:"center",padding:16,color:"var(--tx3)",fontSize:12}}>No linked POs</div>}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,marginBottom:20}}>
+      {kv("Attached Document",p.docName?<span>{p.docName}{driveFolderId&&<> · <a href={GDRIVE_BASE+driveFolderId} target="_blank" rel="noopener" style={{color:"var(--ac)"}}>📁 Drive</a></>}</span>:(driveFolderId?<a href={GDRIVE_BASE+driveFolderId} target="_blank" rel="noopener" style={{color:"var(--ac)"}}>📁 Open Drive folder</a>:"—"))}
+      {kv("Notes",p.notes||"—")}
+    </div>
+    <button onClick={onEmail} style={{width:"100%",padding:"14px",fontSize:15,fontWeight:800,border:"none",borderRadius:"var(--r2)",background:"var(--gn)",color:"#fff",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",letterSpacing:".01em"}}>✉️ Send Confirmation Email</button>
+  </div></div>;
+}
+
 function PaymentsTab({orders,payments,onRefresh}){
   const loading=useLoading();
   const[showUp,setShowUp]=useState(false);const[fR,setFR]=useState("all");const[search,setSearch]=useState("");const[fPeriod,setFPeriod]=useState("6M");
   const[sort,setSort]=useState({key:"date",dir:"desc"});
   const[editPayment,setEditPayment]=useState(null);
+  const[detailPayment,setDetailPayment]=useState(null);
+  const[emailPayment,setEmailPayment]=useState(null);
   const go=id=>orders.find(o=>o.id===id);
   const deletePayment=async(payment)=>{if(!confirm(`Delete payment ${payment.id}? This cannot be undone.`))return;loading.show("Deleting payment...");try{await apiDelete(`/api/payments/${encodeURIComponent(payment.id)}`);await onRefresh();}catch(e){alert("Delete failed: "+e.message);}finally{loading.hide();}};
   const fl=payments.filter(p=>{if(fPeriod!=="all"){const months=fPeriod==="1M"?1:fPeriod==="3M"?3:fPeriod==="1Y"?12:6;const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-months);const pDate=p.date?new Date(p.date):null;if(pDate&&pDate<cutoff)return false;}if(fR!=="all"&&p.sourceEntity!==fR)return false;if(search){const refs=(p.orderIds||[]).map(id=>go(id)?.ref||"").join(" ");return(refs+" "+(p.docName||"")+" "+(p.notes||"")).toLowerCase().includes(search.toLowerCase());}return true;});
@@ -1956,9 +2100,11 @@ function PaymentsTab({orders,payments,onRefresh}){
       <div className="filter-section"><span className="filter-label">Source</span><BtnGroup options={ENTITIES} value={fR} onChange={setFR} allLabel="All"/></div>
     </div>
     <div className="tw"><div className="tsc"><table><thead><tr><th className="srt" onClick={()=>ts("source")}>Region{si("source")}</th><th className="srt" onClick={()=>ts("po")}>PO Ref(s){si("po")}</th><th className="srt" onClick={()=>ts("type")}>Pmt Type{si("type")}</th><th>Currency</th><th className="srt" onClick={()=>ts("amount")}>Amount{si("amount")}</th><th className="srt usd-col" onClick={()=>ts("amount")}>USD Equiv{si("amount")}</th><th className="srt" onClick={()=>ts("date")}>Date{si("date")}</th><th className="srt" onClick={()=>ts("uploaded")}>Uploaded{si("uploaded")}</th><th className="srt" onClick={()=>ts("bank")}>Bank{si("bank")}</th><th>Drive</th><th className="srt" onClick={()=>ts("ic")}>IC?{si("ic")}</th><th>Notes / Doc</th><th>Actions</th></tr></thead>
-    <tbody>{sorted.map(p=>{const oids=p.orderIds||[];const firstO=go(oids[0]);const isIC=p.sourceEntity&&oids.length>0&&oids.some(oid=>{const o=go(oid);return o&&o.region&&p.sourceEntity!==o.region;});const driveFolderId=oids.map(id=>go(id)?.driveFolderId).find(Boolean);return <tr key={p.id}><td><RegionBadge region={p.sourceEntity}/></td><td className="cb">{oids.length>1?oids.length+" POs":(firstO?.ref||"—")}</td><td><span className="badge badge-green">{p.type}</span></td><td>{p.currency||"USD"}</td><td className="mono">{(p.amount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(p.amount,p.currency||"USD"))}</td><td className="cm">{fmtDate(p.date)}</td><td className="cm">{p.created?fmtDate(p.created.slice(0,10)):"—"}</td><td>{BANKS.find(b=>b.id===p.bankAccount)?.label||p.bankAccount}</td><td>{driveFolderId?<a href={GDRIVE_BASE+driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td>{isIC?<span className="badge badge-amber">⚠ IC</span>:"—"}</td><td className="cm">{p.docName||p.notes||"—"}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setEditPayment(p)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--ac)"}} title="Edit">✏️</button><button onClick={()=>deletePayment(p)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>;})}
+    <tbody>{sorted.map(p=>{const oids=p.orderIds||[];const firstO=go(oids[0]);const isIC=p.sourceEntity&&oids.length>0&&oids.some(oid=>{const o=go(oid);return o&&o.region&&p.sourceEntity!==o.region;});const driveFolderId=oids.map(id=>go(id)?.driveFolderId).find(Boolean);return <tr key={p.id} onClick={()=>setDetailPayment(p)} style={{cursor:"pointer"}} title="View payment details"><td><RegionBadge region={p.sourceEntity}/></td><td className="cb">{oids.length>1?oids.length+" POs":(firstO?.ref||"—")}</td><td><span className="badge badge-green">{p.type}</span></td><td>{p.currency||"USD"}</td><td className="mono">{(p.amount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(p.amount,p.currency||"USD"))}</td><td className="cm">{fmtDate(p.date)}</td><td className="cm">{p.created?fmtDate(p.created.slice(0,10)):"—"}</td><td>{BANKS.find(b=>b.id===p.bankAccount)?.label||p.bankAccount}</td><td>{driveFolderId?<a href={GDRIVE_BASE+driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td>{isIC?<span className="badge badge-amber">⚠ IC</span>:"—"}</td><td className="cm">{p.docName||p.notes||"—"}</td><td style={{whiteSpace:"nowrap"}}><button onClick={e=>{e.stopPropagation();setEmailPayment(p);}} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Send confirmation email">✉️</button><button onClick={e=>{e.stopPropagation();setEditPayment(p);}} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--ac)"}} title="Edit">✏️</button><button onClick={e=>{e.stopPropagation();deletePayment(p);}} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>;})}
     {!sorted.length&&<tr><td colSpan={13} className="ec">No payments match</td></tr>}</tbody></table></div></div>
     {editPayment&&<EditPaymentModal payment={editPayment} orders={orders} onSave={async()=>{await onRefresh();setEditPayment(null);}} onClose={()=>setEditPayment(null)}/>}
+    {detailPayment&&<PaymentDetailsModal payment={detailPayment} orders={orders} onClose={()=>setDetailPayment(null)} onEmail={()=>{setEmailPayment(detailPayment);setDetailPayment(null);}}/>}
+    {emailPayment&&<EmailTemplateModal payment={emailPayment} orders={orders} onClose={()=>setEmailPayment(null)}/>}
   </>;
 }
 

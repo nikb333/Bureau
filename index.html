@@ -1910,15 +1910,30 @@ function OrdersTab({orders,payments,onRefresh}){
       </div>
     </div>;
   };
-  const setPriority=(item,level)=>{
-    const curPrio=item.id in priorityOverrides?priorityOverrides[item.id]:item.priority;
+  const setPriority=async(item,level)=>{
+    // Resolve current priority from the override map if present, otherwise
+    // from the server-provided order. The map is only an optimistic layer
+    // — it must NOT be allowed to mask fresh server data once the write
+    // has been confirmed, otherwise another user's changes to the same PO
+    // become invisible for the rest of this session.
+    const curPrio=item.id in priorityOverrides?priorityOverrides[item.id]:(item.priority||"");
     const leg=item.lineType==="Deposit"?"deposit":"release";
     const newPrio=setLegLevel(curPrio,leg,level);
+    // Optimistic update for instant feedback
     setPriorityOverrides(p=>({...p,[item.id]:newPrio}));
-    apiPatch(`/api/orders/${encodeURIComponent(item.id)}`,{priority:newPrio}).catch(e=>{
+    try{
+      await apiPatch(`/api/orders/${encodeURIComponent(item.id)}`,{priority:newPrio});
+      // Pull the server's authoritative state, then drop the override so
+      // subsequent renders use the fresh server value. Without this, the
+      // override would freeze this PO's priority for the rest of the
+      // session and hide concurrent changes from other users.
+      await onRefresh();
+      setPriorityOverrides(p=>{const n={...p};delete n[item.id];return n;});
+    }catch(e){
+      // Revert optimistic update on failure
       setPriorityOverrides(p=>{const n={...p};delete n[item.id];return n;});
       alert("Failed to update priority: "+e.message);
-    });
+    }
   };
   const renderRows=(items,showSelectAll)=><tbody>{items.map(item=>{const isPaid=item.lineStatus==="paid";const isPartial=item.lineStatus==="partial";const isOverdue=!isPaid&&!isPartial&&item.lineDue&&new Date(item.lineDue)<new Date();return <tr key={item.lineKey} onMouseDown={e=>onRowMouseDown(e,item,items)} onMouseEnter={e=>onRowMouseEnter(e,item)} style={{background:selected.has(item.lineKey)?"#eef2ff":item.linePriority?"#fef3c7":isPaid?"#f0fdf4":isPartial?"#eff6ff":isOverdue?"#fef2f2":"inherit",userSelect:dragRef.current.active?"none":"auto",cursor:"default"}}><td style={{width:52,padding:"4px 6px",textAlign:"center"}}>{(()=>{const lvl=item.linePriority||0;return <select value={lvl||""} title={`Priority for ${item.lineType} — 1 = highest`} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} onChange={e=>{e.stopPropagation();setPriority(item,e.target.value?+e.target.value:0);}} style={{fontFamily:"'DM Sans',sans-serif",fontWeight:lvl===1?800:700,fontSize:lvl===1?17:lvl===2?13:lvl===3?11:12,color:lvl?"var(--rd)":"var(--tx3)",background:lvl?"#fff5f5":"var(--wh)",border:"1px solid "+(lvl?"var(--rd)":"var(--bd)"),borderRadius:5,cursor:"pointer",padding:"2px 2px",width:42,textAlign:"center",appearance:"none",WebkitAppearance:"none",MozAppearance:"none"}}><option value="">—</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>;})()}</td><td><InlineEditCell value={item.region} orderId={item.id} field="region" type="select" options={ENTITIES} onSave={inlineSave} displayValue={<RegionBadge region={item.region}/>}/></td><td className="cb"><InlineEditCell value={item.ref} orderId={item.id} field="ref" onSave={inlineSave}/></td><td><InlineEditCell value={item.inv} orderId={item.id} field="inv" onSave={inlineSave} mono/></td><td><span className="badge badge-blue">{item.lineType}</span></td><td><InlineEditCell value={item.currency} orderId={item.id} field="currency" type="select" options={CURRENCIES} onSave={inlineSave}/></td><td className="mono">{(item.lineAmount||0).toLocaleString()}</td><td className="mono usd-col" style={{fontWeight:700}}>{usd(toUSD(item.lineAmount,item.currency))}</td><td className="mono" style={{color:item.linePaidAmt>0?"var(--gn)":"var(--tx3)"}}>{item.linePaidAmt>0?usd(toUSD(item.linePaidAmt,item.currency)):"—"}</td><td className="mono" style={{fontWeight:700,color:item.lineOutstanding>0?"var(--am)":"var(--gn)"}}>{usd(toUSD(item.lineOutstanding,item.currency))}</td><td><InlineEditCell value={item.lineDue} orderId={item.id} field={item.lineType==="Deposit"?"depositDue":"releaseDue"} type="date" onSave={inlineSave} displayValue={fmtDate(item.lineDue)} style={{fontSize:12,color:"var(--tx2)"}}/></td><td><InlineEditCell value={item.linePaid} orderId={item.id} field={item.lineType==="Deposit"?"depositPaid":"releasePaid"} type="date" onSave={inlineSave} displayValue={fmtDate(item.linePaid)} style={{fontSize:12,color:"var(--tx2)"}}/></td><td><InlineEditCell value={item.poDate} orderId={item.id} field="poDate" type="date" onSave={inlineSave} displayValue={fmtDate(item.poDate)} style={{fontSize:12,color:"var(--tx2)"}}/></td><td style={{textAlign:"center"}}><StatusBadge status={item.lineStatus} dueDate={item.lineDue}/></td><td><InlineEditCell value={item.supplier} orderId={item.id} field="supplier" type="select" options={SUPPLIERS} onSave={inlineSave}/>{item.notes?<span className="cm" style={{display:"block",fontSize:10,maxWidth:150,overflow:"hidden",textOverflow:"ellipsis"}} title={item.notes}>{item.notes}</span>:""}</td><td>{item.driveFolderId?<a href={GDRIVE_BASE+item.driveFolderId} target="_blank" rel="noopener" className="drive-link" title="Open in Drive">📁</a>:<span className="cm">—</span>}</td><td style={{fontSize:10,whiteSpace:"nowrap",lineHeight:"16px"}}>{(()=>{const d=item.docs||{};return <span style={{display:"inline-flex",gap:4}}><span title="Purchase Order" style={{color:d.po?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.po?"☑":"☐"} PO</span><span title="Commercial Invoice" style={{color:d.ci?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.ci?"☑":"☐"} CI</span><span title="Remittance" style={{color:d.rem?"var(--gn)":"var(--tx3)",fontWeight:600}}>{d.rem?"☑":"☐"} Rem</span></span>})()}</td><td style={{whiteSpace:"nowrap"}}><button onClick={()=>setUploadFor(item)} style={{fontSize:11,background:"var(--acl)",border:"1px solid var(--ac)",borderRadius:4,cursor:"pointer",padding:"3px 7px",color:"var(--ac)",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginRight:4}} title="Upload document to this PO">⬆ Upload</button><button onClick={()=>setEditOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px"}} title="Edit all fields">✏️</button><button onClick={()=>deleteOrder(item)} style={{fontSize:14,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",color:"var(--rd)"}} title="Delete">🗑️</button></td></tr>})}{!items.length&&<tr><td colSpan={18} className="ec">No line items match</td></tr>}</tbody>;
 
@@ -2509,6 +2524,24 @@ function App(){
   const loadData=useCallback(async()=>{try{setLoading(true);setError(null);const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){setError(e.message);}finally{setLoading(false);};},[]);
   useEffect(()=>{loadData();},[loadData]);
   const refresh=useCallback(async()=>{overlay.show("Refreshing data...");try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}finally{overlay.hide();}},[overlay]);
+  // Silent background refresh — no overlay. Used by the auto-poll and
+  // tab-focus listeners so users see each other's changes (priority
+  // levels, inline edits, payments) without manually clicking refresh.
+  const silentRefresh=useCallback(async()=>{try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Silent refresh failed:",e);}},[]);
+  // Poll every 60s while the tab is visible, and reload immediately when
+  // the user comes back to the tab. Catches concurrent teammate changes
+  // without requiring a manual refresh.
+  useEffect(()=>{
+    let timer=null;
+    const start=()=>{if(timer)return;timer=setInterval(()=>{if(!document.hidden)silentRefresh();},60000);};
+    const stop=()=>{if(timer){clearInterval(timer);timer=null;}};
+    const onVisibility=()=>{if(document.hidden){stop();}else{silentRefresh();start();}};
+    const onFocus=()=>{if(!document.hidden)silentRefresh();};
+    if(!document.hidden)start();
+    document.addEventListener("visibilitychange",onVisibility);
+    window.addEventListener("focus",onFocus);
+    return()=>{stop();document.removeEventListener("visibilitychange",onVisibility);window.removeEventListener("focus",onFocus);};
+  },[silentRefresh]);
   if(loading)return <div className="loading-screen"><div className="spinner"/><span style={{fontSize:15,color:"var(--tx2)"}}>Loading Bureau Ops...</span></div>;
   if(error)return <div className="loading-screen"><div style={{fontSize:48}}>⚠️</div><div style={{fontSize:15,color:"var(--rd)",maxWidth:400,textAlign:"center"}}>{error}</div><button className="btn btn-primary" onClick={loadData}>Retry</button></div>;
   return <div className="app">

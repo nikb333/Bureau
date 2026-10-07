@@ -1730,7 +1730,7 @@ function ordersToLineItems(orders){
 }
 
 // Tabs
-function OrdersTab({orders,payments,onRefresh,onLocalPatch}){
+function OrdersTab({orders,payments,onRefresh,onSilentRefresh,onLocalPatch,onBeginSave,onEndSave}){
   const loading=useLoading();
   const[search,setSearch]=useState("");const[fR,setFR]=useState("all");const[fS,setFS]=useState("all");const[fAge,setFAge]=useState("6M");const[fPrio,setFPrio]=useState("all");
   const[sort,setSort]=useState({key:"ref",dir:"asc"});const[showUp,setShowUp]=useState(false);const[showPaid,setShowPaid]=useState(false);
@@ -1793,9 +1793,22 @@ function OrdersTab({orders,payments,onRefresh,onLocalPatch}){
     else if(field==="notes")patch.notes=value;
     else if(field==="currency")patch.currency=value;
     else patch[field]=value;
-    await apiPatch(`/api/orders/${encodeURIComponent(orderId)}`,patch);
-    await onRefresh();
-  },[onRefresh]);
+    // Optimistic local update — the row shows the new value immediately
+    // so the user isn't blocked waiting for a server round-trip.
+    if(onLocalPatch)onLocalPatch(orderId,patch);
+    // Record a background save in flight — the sidebar "Saving…" chip
+    // picks this up without a full-screen overlay.
+    if(onBeginSave)onBeginSave();
+    try{
+      await apiPatch(`/api/orders/${encodeURIComponent(orderId)}`,patch);
+      // Trigger a silent background refresh so any derived totals
+      // (status, outstanding, etc) catch up. No overlay — further edits
+      // remain possible while this runs.
+      if(onSilentRefresh)onSilentRefresh();
+    }finally{
+      if(onEndSave)onEndSave();
+    }
+  },[onLocalPatch,onSilentRefresh,onBeginSave,onEndSave]);
   const toggleSelect=(key,e,items)=>{
     if(e&&e.shiftKey&&lastClickRef.current&&items){
       const keys=items.map(i=>i.lineKey);
@@ -1955,8 +1968,10 @@ function OrdersTab({orders,payments,onRefresh,onLocalPatch}){
     if(q[item.id].inFlight)return;
     const fire=(valueToSave)=>{
       q[item.id].inFlight=true;
+      if(onBeginSave)onBeginSave();
       apiPatch(`/api/orders/${encodeURIComponent(item.id)}`,{priority:valueToSave}).then(()=>{
         q[item.id].inFlight=false;
+        if(onEndSave)onEndSave();
         // Was there a newer click while this save was running? If so,
         // fire a follow-up with the latest desired value and leave the
         // optimistic override in place.
@@ -1969,6 +1984,7 @@ function OrdersTab({orders,payments,onRefresh,onLocalPatch}){
         delete q[item.id];
       }).catch(e=>{
         q[item.id].inFlight=false;
+        if(onEndSave)onEndSave();
         delete q[item.id];
         clearOverride(item.id);
         alert("Failed to update priority: "+e.message);
@@ -2562,6 +2578,12 @@ function ForecastTab({orders}){
 function App(){
   const overlay=useLoading();
   const[tab,setTab]=useState("orders");const[orders,setOrders]=useState([]);const[payments,setPayments]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState(null);const[sideUpload,setSideUpload]=useState(false);const[lastRefresh,setLastRefresh]=useState(null);const[showHelp,setShowHelp]=useState(false);const[bugNotes,setBugNotes]=useState(()=>{try{return JSON.parse(localStorage.getItem("bureau-bug-notes")||"[]");}catch{return[];}});const[bugInput,setBugInput]=useState("");const[showBugs,setShowBugs]=useState(false);
+  // Count of in-flight background saves across the whole app. Shows a
+  // small "Saving…" chip in the page header so users know edits are
+  // persisting without blocking the UI with a full-screen overlay.
+  const[savesInFlight,setSavesInFlight]=useState(0);
+  const beginSave=useCallback(()=>setSavesInFlight(n=>n+1),[]);
+  const endSave=useCallback(()=>setSavesInFlight(n=>Math.max(0,n-1)),[]);
   const loadData=useCallback(async()=>{try{setLoading(true);setError(null);const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){setError(e.message);}finally{setLoading(false);};},[]);
   useEffect(()=>{loadData();},[loadData]);
   const refresh=useCallback(async()=>{overlay.show("Refreshing data...");try{const data=await apiGet("/api/all");setOrders(data.orders||[]);setPayments(data.payments||[]);setLastRefresh(new Date());}catch(e){console.error("Refresh failed:",e);}finally{overlay.hide();}},[overlay]);
@@ -2607,10 +2629,10 @@ function App(){
         </div>)}{bugNotes.length===0&&<div style={{fontSize:10,color:"var(--tx3)",fontStyle:"italic",padding:"4px 0"}}>No notes yet</div>}</div>
       </div>}
     </div>
-    <div className="sf"><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{orders.length} POs · {payments.length} payments</span><div style={{display:"flex",gap:6,alignItems:"center"}}><a href="https://docs.google.com/spreadsheets/d/1a_j_qCDWF9y8LUfT3iq-R5ZzydID-A36/edit?gid=17854855#gid=17854855&fvid=547760767" target="_blank" rel="noopener" style={{background:"#34a853",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:13,cursor:"pointer",fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none"}} title="Open Google Sheet">📊</a><button onClick={()=>setShowHelp(true)} style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:14,cursor:"pointer",fontWeight:700}} title="Backend guide & troubleshooting">?</button></div></div>{lastRefresh&&<div style={{marginTop:4,cursor:"pointer"}} onClick={refresh} title="Click to refresh">🔄 {lastRefresh.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</div>}</div></div>
+    <div className="sf"><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>{orders.length} POs · {payments.length} payments</span><div style={{display:"flex",gap:6,alignItems:"center"}}><a href="https://docs.google.com/spreadsheets/d/1a_j_qCDWF9y8LUfT3iq-R5ZzydID-A36/edit?gid=17854855#gid=17854855&fvid=547760767" target="_blank" rel="noopener" style={{background:"#34a853",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:13,cursor:"pointer",fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center",textDecoration:"none"}} title="Open Google Sheet">📊</a><button onClick={()=>setShowHelp(true)} style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:"50%",width:24,height:24,fontSize:14,cursor:"pointer",fontWeight:700}} title="Backend guide & troubleshooting">?</button></div></div>{lastRefresh&&<div style={{marginTop:4,display:"flex",alignItems:"center",gap:8}}><span style={{cursor:"pointer"}} onClick={refresh} title="Click to refresh">🔄 {lastRefresh.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</span>{savesInFlight>0&&<span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,color:"var(--ac)",fontWeight:600}} title={`${savesInFlight} save${savesInFlight>1?"s":""} in flight`}><span className="spinner" style={{width:10,height:10,borderWidth:1.5}}/>Saving…</span>}</div>}</div></div>
     <main className="mn">
       {sideUpload&&<div className="us" style={{marginBottom:24}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><span style={{fontWeight:700,fontSize:14}}>Quick Upload</span><button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:11}} onClick={()=>setSideUpload(false)}>✕ Close</button></div><InlineUploader orders={orders} payments={payments} defaultDocType="purchase_order" onRefresh={refresh}/></div>}
-      {tab==="orders"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh} onLocalPatch={patchOrderLocal}/>}
+      {tab==="orders"&&<OrdersTab orders={orders} payments={payments} onRefresh={refresh} onSilentRefresh={silentRefresh} onLocalPatch={patchOrderLocal} onBeginSave={beginSave} onEndSave={endSave}/>}
       {tab==="payments"&&<PaymentsTab orders={orders} payments={payments} onRefresh={refresh}/>}
       {tab==="clearing"&&<IntercompanyTab orders={orders} payments={payments}/>}
       {tab==="bookkeeper"&&<BookkeeperTab orders={orders} payments={payments}/>}

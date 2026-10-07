@@ -258,19 +258,39 @@ function rowToOrder(row) {
   };
 }
 
-function normalizePriority(p) {
-  if (p === true || p === "1" || p === "both") return "both";
-  if (p === "deposit") return "deposit";
-  if (p === "release") return "release";
-  return "";
+// Priority formats this worker accepts and emits:
+//   ""                           — no priority on either leg
+//   "both" | "deposit" | "release" | "1" — legacy single-value flag
+//                                  ("both"/"1" => both legs level 1)
+//   "deposit:N" | "release:N"    — per-leg level, N in 1..3
+//   "deposit:N,release:M"        — both legs set
+// The frontend introduced the per-leg format on 2026-09-03; the earlier
+// normalizePriority only knew the legacy forms and silently returned ""
+// for anything else, which meant every per-leg write between then and
+// 2026-10-07 was dropped on the floor. parsePriorityValue is shared by
+// both the write path (normalizePriority) and the read path
+// (readPriority) so the sheet round-trips any valid value unchanged.
+function parsePriorityValue(raw) {
+  if (raw == null) return "";
+  if (raw === true) return "both";
+  const s = String(raw).trim();
+  if (!s) return "";
+  if (s === "both" || s === "1") return "both";
+  if (s === "deposit" || s === "release") return s;
+  const legs = { deposit: 0, release: 0 };
+  for (const part of s.split(",")) {
+    const m = part.trim().match(/^(deposit|release)\s*:\s*([1-3])$/);
+    if (m) legs[m[1]] = parseInt(m[2], 10);
+  }
+  const parts = [];
+  if (legs.deposit > 0) parts.push("deposit:" + legs.deposit);
+  if (legs.release > 0) parts.push("release:" + legs.release);
+  return parts.join(",");
 }
 
-function readPriority(raw) {
-  if (raw === "1" || raw === true || raw === "both") return "both";
-  if (raw === "deposit") return "deposit";
-  if (raw === "release") return "release";
-  return "";
-}
+function normalizePriority(p) { return parsePriorityValue(p); }
+
+function readPriority(raw) { return parsePriorityValue(raw); }
 
 // --- Payments CRUD ---
 
